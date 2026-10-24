@@ -28,7 +28,8 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 * **Fine-tuned Nemotron-3-Nano-4B** — LoRA SFT on 6 months of Jensen Huang keynotes, earnings calls, interviews and NVIDIA press, trained with NeMo AutoModel on the DGX Spark itself.
 * **Hybrid RAG with citations** — Nemotron-3-Embed-1B dense retrieval fused with BM25; every answer carries `[n]` citations that link to the source speech or article.
 * **Runs 100% on DGX Spark** — teacher, training, embeddings, inference and web app on one GB10 box; nothing leaves the machine.
-* **Streaming web chat UI** — token-by-token SSE answers, sources panel, RAG on/off toggle, example questions.
+* **Structured analyst briefings** — every answer is written in paragraphs under six fixed sections: *Summary · Technical view · Business view · Real-world use cases · Who is already using it · Insights*, so one question yields the engineering facts, the commercial meaning, concrete deployment scenarios, named adopters (only those the sources name, each cited) and non-obvious takeaways. A second, adopter-focused retrieval pass feeds the "who is using it" section. `structured: false` in the API request returns a short direct answer instead.
+* **Streaming web chat UI** — token-by-token SSE answers rendered with section headings, sources panel, RAG on/off toggle, example questions.
 
 **Main benefits**
 
@@ -57,7 +58,7 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 | **Merge & export** | LoRA merged into a standalone HF checkpoint (`scripts/06_merge_lora.py`), optional GGUF export for Ollama | One artefact deployable by vLLM, TensorRT-LLM, Ollama |
 | **Serving** | vLLM container recommended by the model card for Spark/Thor, with `--mamba_ssm_cache_dtype float32` and the Nano-v3 reasoning parser; OpenAI-compatible API | Drop-in for any OpenAI client; thinking mode can be toggled per request |
 | **RAG** | `nvidia/Nemotron-3-Embed-1B-BF16` dense retrieval + BM25, reciprocal-rank fusion, per-document cap, inline `[n]` citations with links back to the speech/article | Fine-tune gives the model Jensen's recent worldview and vocabulary; retrieval keeps numbers and dates exact and verifiable |
-| **App** | FastAPI + streaming SSE chat UI, `/api/answer` JSON endpoint, corpus browser, systemd user units for boot-time start | Runs as a service on the DGX Spark at `http://<spark>:8600` |
+| **App** | FastAPI + streaming SSE chat UI, structured six-section analyst briefings (technical / business / use cases / adopters / insights), `/api/answer` JSON endpoint, corpus browser, systemd user units for boot-time start | Runs as a service on the DGX Spark at `http://<spark>:8600` |
 | **Evaluation** | Base vs fine-tuned on a held-out split: token-F1, ROUGE-L and Nemotron-3-Super LLM-as-judge | +21% F1, +32% ROUGE-L, +35% judge score; see [Results](#results) |
 
 ## Hardware / software
@@ -176,11 +177,18 @@ the RAG layer closes — in the app the same question returns the correct figure
 loss 2.5 → 1.06, validation loss 2.01 → 1.72 (best at step 165 of 249; later epochs start to overfit, so the
 `LOWEST_VAL` checkpoint is the one merged). Wall-clock on GB10: 6.5 min training, 1 min merge.
 
-Live check on the Spark (fine-tuned model + RAG, `POST /api/answer`, 13 s):
+Live check on the Spark (fine-tuned model + RAG, structured briefing, `POST /api/answer`, ~45 s for ~470 words):
 
-> *What did Jensen Huang announce at GTC Berlin 2026?* → "…NVIDIA has committed nearly $10 billion to the European AI
-> ecosystem and is working with 12,000+ partners across Europe… full-stack AI factory spans hardware, system software,
-> CUDA-X libraries, and models…" with six cited sources (NVIDIA blog, keynote transcript, live-blog, YouTube).
+> *What did Jensen Huang announce at GTC Berlin 2026?* → **Summary:** DSX Pod — seven Vera Rubin racks in a
+> road-transportable shipping container — plus the containerised AI-factory platform, keynote 21 Oct 2026 [1][2];
+> **Technical view:** integrated memory/networking/power/liquid cooling, extreme co-design; **Business view:** ~$10 B
+> committed to Europe, thousands of partners, neocloud supply-chain implications; **Real-world use cases:** on-site
+> factory AI, telecom network intelligence, sovereign AI; **Who is already using it:** Mercedes-Benz, Volkswagen
+> (Hyperion), European developers on OpenShell [1]–[10]; **Insights:** AI-as-manufacturing thesis, five-layer cake,
+> neocloud credit risk to watch.
+
+The 4B model occasionally over-generalises in the adopters section (e.g. attaching a company to the wrong product);
+every claim carries a citation so it can be checked in one click.
 
 
 ## Data sources (6-month window)

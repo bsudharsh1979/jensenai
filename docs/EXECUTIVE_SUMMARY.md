@@ -10,8 +10,9 @@ Taipei/Computex, SIGGRAPH and GTC Berlin, two earnings calls, analyst conference
 commencement speeches and dozens of interviews — plus NVIDIA's own newsroom and blog coverage from the same period.
 
 Ask it *"What did Jensen announce at GTC Berlin?"*, *"How does he describe the five-layer cake?"* or *"What was
-data-center revenue guidance on the Q2 FY27 call?"* and it answers in seconds with numbered citations that link back
-to the exact speech, article or transcript. Everything — teacher model, fine-tuning, embeddings, inference and the
+data-center revenue guidance on the Q2 FY27 call?"* and it returns a structured analyst briefing — Summary, Technical
+view, Business view, Real-world use cases, Who is already using it, Insights — written in paragraphs, with numbered
+citations that link back to the exact speech, article or transcript. Everything — teacher model, fine-tuning, embeddings, inference and the
 web app — runs on **one NVIDIA DGX Spark** (GB10, 128 GB unified memory). No data leaves the box and no cloud API
 is used.
 

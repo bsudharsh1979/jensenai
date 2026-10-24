@@ -23,14 +23,27 @@ HERE = Path(__file__).resolve().parent
 STATE: dict = {}
 
 SYSTEM_PROMPT = (
-    "You are NVIDIA Insight, an assistant that answers questions about NVIDIA and its CEO Jensen Huang, "
+    "You are NVIDIA Insight, an analyst-grade assistant that answers questions about NVIDIA and its CEO Jensen Huang, "
     "grounded in his speeches, keynotes, earnings calls and interviews from the last six months. "
-    "Answer precisely, cite the event and date when relevant, and say so if something is not covered."
+    "Answer precisely, name the event and date for every claim you attribute to Jensen, and say so if something is not covered."
 )
+
+ANSWER_FORMAT = (
+    "Write a structured analyst briefing. Use exactly these markdown section headings, in this order, and write each "
+    "section as one or two full paragraphs of prose (no bullet lists):\n"
+    "### Summary — the direct answer in 2-3 sentences, with the event and date.\n"
+    "### Technical view — what was actually announced or explained: architectures, products, numbers, how it works, what changed versus the previous generation.\n"
+    "### Business view — why it matters commercially: revenue, demand, margins, guidance, market position, partners, competitive implications, and what Jensen's framing signals about NVIDIA's strategy.\n"
+    "### Real-world use cases — how an enterprise, developer, or government would concretely apply this today (e.g. sovereign AI factories, agentic enterprise software, robotics/physical AI, drug discovery, telecom, manufacturing), described as specific scenarios.\n"
+    "### Who is already using it — named companies, labs, countries or partners that the numbered sources explicitly say have adopted it, with the benefit they report and a citation for each name. Copy names exactly as they appear in the sources; do not add descriptions of a company that the sources do not give. If the sources name no adopter, write exactly: 'The retrieved sources do not name specific adopters.' and stop.\n"
+    "### Insights — 2-3 sentences of non-obvious takeaways: what to watch, risks, second-order effects, or how this connects to Jensen's broader theses (AI factories, the five-layer cake, extreme co-design, agentic and physical AI).\n"
+    "Cite the numbered sources inline as [n] after the sentences they support. Be specific and quantitative wherever the material allows; never invent figures, customers or dates."
+)
+
 RAG_INSTRUCTIONS = (
-    "Use the numbered sources below when they are relevant and cite them inline as [1], [2], ... "
-    "If the sources do not cover the question, answer from what you learned from Jensen Huang's recent speeches "
-    "and say that no source excerpt confirms it. Keep answers concise and factual."
+    "Use the numbered sources below as your primary evidence and cite them inline as [1], [2], ... after the sentences they support. "
+    "If the sources do not cover part of the question, draw on what you learned from Jensen Huang's recent speeches "
+    "and state that no source excerpt confirms it."
 )
 
 
@@ -48,9 +61,10 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 class ChatRequest(BaseModel):
     messages: list[dict] = Field(..., description="OpenAI-style messages (user/assistant turns)")
     use_rag: bool = True
-    top_k: int = 6
-    max_tokens: int = 700
-    temperature: float = 0.3
+    top_k: int = 8
+    max_tokens: int = 1400
+    temperature: float = 0.2
+    structured: bool = Field(True, description="Analyst briefing format (Summary / Technical / Business / Use cases / Adopters / Insights)")
 
 
 def _format_sources(hits: list[dict]) -> str:
@@ -68,8 +82,20 @@ def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
     system = SYSTEM_PROMPT
     if req.use_rag and "retriever" in STATE and question:
         hits = STATE["retriever"].search(question, top_k=req.top_k)
+        if req.structured:
+            # Second pass aimed at the "Who is already using it" section: pull passages that name
+            # customers/partners/deployments so the model has evidence instead of guessing.
+            seen = {h["chunk_id"] for h in hits}
+            extra = STATE["retriever"].search(
+                f"companies, partners and customers named as deploying or adopting this: {question}", top_k=10)
+            extra = [h for h in extra if h["chunk_id"] not in seen][:4]
+            hits += extra
         if hits:
-            system = f"{SYSTEM_PROMPT}\n\n{RAG_INSTRUCTIONS}\n\nSources:\n{_format_sources(hits)}"
+            system = f"{system}\n\n{RAG_INSTRUCTIONS}\n\nSources:\n{_format_sources(hits)}"
+    # The 4B model follows formatting instructions far more reliably when they sit in the user turn
+    # (next to the question) than in the system prompt, so append the briefing format there.
+    if req.structured and history and history[-1]["role"] == "user":
+        history = [*history[:-1], {"role": "user", "content": f"{history[-1]['content']}\n\n{ANSWER_FORMAT}"}]
     return [{"role": "system", "content": system}, *history], hits
 
 

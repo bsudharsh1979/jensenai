@@ -24,6 +24,10 @@
   .msg .role { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:6px; }
   .msg.bot .role { color:var(--green); }
   .cite { color:var(--green); font-weight:600; }
+  .msg.bot .body { white-space:normal; }
+  .msg.bot .body h3 { font-size:12px; text-transform:uppercase; letter-spacing:1.2px; color:var(--green); margin:16px 0 4px; padding-top:10px; border-top:1px solid var(--border); }
+  .msg.bot .body h3:first-child { margin-top:4px; padding-top:0; border-top:0; }
+  .msg.bot .body p { margin:0 0 10px; }
   form { display:flex; gap:10px; padding:14px 22px; border-top:1px solid var(--border); background:var(--panel); }
   input[type=text] { flex:1; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:15px; }
   button { padding:12px 18px; border-radius:8px; border:none; background:var(--green); color:#07100a; font-weight:700; cursor:pointer; }
@@ -83,7 +87,23 @@ function add(role, text) {
   d.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'NVIDIA Insight'}</div><div class="body"></div>`;
   d.querySelector('.body').textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d.querySelector('.body');
 }
-function render(el, text) { el.innerHTML = text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>'); log.scrollTop = log.scrollHeight; }
+function render(el, text) {
+  // minimal markdown: ### headings, **bold**, blank-line paragraphs, [n] citations
+  const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
+  const html = text.split(/\n{2,}|\n(?=#{2,3} )/).map(block => {
+    const b = block.trim(); if (!b) return '';
+    if (/^#{2,3}\s/.test(b)) {
+      const [first, ...rest] = b.split('\n');
+      const m = first.replace(/^#+\s+/, '').match(/^(.+?)\s+(?:—|–|-|:)\s+(.*)$/);   // "### Heading — body on same line"
+      const head = m ? m[1] : first.replace(/^#+\s+/, '');
+      const bodyTxt = [m ? m[2] : '', ...rest].join(' ').trim();
+      return `<h3>${inline(head)}</h3>` + (bodyTxt ? `<p>${inline(bodyTxt)}</p>` : '');
+    }
+    return `<p>${inline(b.replace(/\n/g, ' '))}</p>`;
+  }).join('');
+  el.innerHTML = html; log.scrollTop = log.scrollHeight;
+}
 function showSources(s) {
   if (!s.length) { srcEl.innerHTML = '<div class="corpus">No passages retrieved (RAG off or empty index).</div>'; return; }
   srcEl.innerHTML = s.map((x,i)=>`<div class="src"><a href="${x.url||'#'}" target="_blank">[${i+1}] ${x.title||'Untitled'}</a><div class="meta">${x.date||''} · ${x.source_type||''}</div><div class="snip">${(x.snippet||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}…</div></div>`).join('');
