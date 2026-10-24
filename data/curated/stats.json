@@ -1,0 +1,22 @@
+{
+  "funnel": {
+    "loaded": 311,
+    "drop_yt_title": 51,
+    "drop_irrelevant": 15,
+    "drop_exact_dup": 46,
+    "drop_quality_repeated_ngrams": 4,
+    "drop_quality_symbol_ratio": 2,
+    "drop_near_dup": 20,
+    "kept_docs": 173,
+    "chunks": 2389,
+    "total_words": 676964
+  },
+  "by_source_type": {
+    "youtube": 57,
+    "web": 116
+  },
+  "window": [
+    "2026-04-24",
+    "2026-10-24"
+  ]
+}

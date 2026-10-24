@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NVIDIA Insight · Jensen Huang Q&A on DGX Spark</title>
+<style>
+  :root { --green:#76b900; --bg:#0b0f0c; --panel:#121814; --text:#e6ede6; --muted:#8a9a8a; --border:#223125; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; flex-direction:column; height:100vh; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid var(--border); background:var(--panel); }
+  header h1 { font-size:18px; margin:0; letter-spacing:.3px; }
+  header h1 span { color:var(--green); }
+  .status { font-size:12px; color:var(--muted); }
+  .status b { color:var(--text); font-weight:600; }
+  .status .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#c33; margin-right:6px; }
+  .status .dot.ok { background:var(--green); }
+  main { flex:1; display:grid; grid-template-columns: 1fr 340px; min-height:0; }
+  #chat { display:flex; flex-direction:column; min-height:0; }
+  #log { flex:1; overflow-y:auto; padding:22px; }
+  .msg { max-width:860px; margin:0 auto 16px; padding:14px 16px; border-radius:10px; line-height:1.5; white-space:pre-wrap; }
+  .msg.user { background:#1a2a1c; border:1px solid #27402a; }
+  .msg.bot { background:var(--panel); border:1px solid var(--border); }
+  .msg .role { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:6px; }
+  .msg.bot .role { color:var(--green); }
+  .cite { color:var(--green); font-weight:600; }
+  form { display:flex; gap:10px; padding:14px 22px; border-top:1px solid var(--border); background:var(--panel); }
+  input[type=text] { flex:1; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:15px; }
+  button { padding:12px 18px; border-radius:8px; border:none; background:var(--green); color:#07100a; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  label.toggle { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+  aside { border-left:1px solid var(--border); background:var(--panel); overflow-y:auto; padding:16px; font-size:13px; }
+  aside h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:0 0 10px; }
+  .src { padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:10px; background:#0e130f; }
+  .src a { color:var(--green); text-decoration:none; font-weight:600; }
+  .src .meta { color:var(--muted); font-size:11px; margin:4px 0; }
+  .src .snip { color:#b8c4b8; font-size:12px; }
+  .examples { display:flex; flex-wrap:wrap; gap:8px; max-width:860px; margin:0 auto 16px; }
+  .examples button { background:#1a2a1c; color:var(--text); border:1px solid #27402a; font-weight:500; font-size:13px; }
+  .corpus { color:var(--muted); font-size:12px; margin-bottom:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>NVIDIA</span> Insight · Jensen Huang Q&amp;A <small style="color:var(--muted);font-weight:400">· fine-tuned Nemotron-3-Nano-4B on DGX Spark</small></h1>
+  <div class="status" id="status"><span class="dot"></span>connecting…</div>
+</header>
+<main>
+  <section id="chat">
+    <div id="log">
+      <div class="examples" id="examples"></div>
+    </div>
+    <form id="form">
+      <input id="q" type="text" placeholder="Ask about NVIDIA, Jensen Huang's keynotes, earnings, Vera Rubin, DGX Spark…" autocomplete="off" required>
+      <label class="toggle"><input type="checkbox" id="rag" checked> RAG</label>
+      <button id="send" type="submit">Ask</button>
+    </form>
+  </section>
+  <aside>
+    <h2>Corpus</h2>
+    <div class="corpus" id="corpus">loading…</div>
+    <h2>Sources for last answer</h2>
+    <div id="sources"><div class="corpus">Ask a question to see retrieved passages.</div></div>
+  </aside>
+</main>
+<script>
+const log = document.getElementById('log'), form = document.getElementById('form'), q = document.getElementById('q');
+const sendBtn = document.getElementById('send'), srcEl = document.getElementById('sources');
+const history = [];
+const EXAMPLES = [
+  "What did Jensen Huang announce at GTC Berlin 2026?",
+  "How did NVIDIA do in Q2 FY2027 and what was the Q3 guidance?",
+  "Why does Jensen say AI is a manufacturing industry, not software?",
+  "What is Vera Rubin and when is it in production?",
+  "What did Jensen say about agentic AI at Computex / GTC Taipei 2026?",
+  "What did Jensen Huang say about DGX Spark?"
+];
+const ex = document.getElementById('examples');
+EXAMPLES.forEach(t => { const b = document.createElement('button'); b.type='button'; b.textContent=t; b.onclick=()=>{ q.value=t; form.requestSubmit(); }; ex.appendChild(b); });
+
+function add(role, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + role;
+  d.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'NVIDIA Insight'}</div><div class="body"></div>`;
+  d.querySelector('.body').textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d.querySelector('.body');
+}
+function render(el, text) { el.innerHTML = text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])).replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>'); log.scrollTop = log.scrollHeight; }
+function showSources(s) {
+  if (!s.length) { srcEl.innerHTML = '<div class="corpus">No passages retrieved (RAG off or empty index).</div>'; return; }
+  srcEl.innerHTML = s.map((x,i)=>`<div class="src"><a href="${x.url||'#'}" target="_blank">[${i+1}] ${x.title||'Untitled'}</a><div class="meta">${x.date||''} · ${x.source_type||''}</div><div class="snip">${(x.snippet||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}…</div></div>`).join('');
+}
+form.addEventListener('submit', async e => {
+  e.preventDefault(); const text = q.value.trim(); if (!text) return;
+  q.value=''; sendBtn.disabled = true; ex.style.display='none';
+  add('user', text); history.push({role:'user', content:text});
+  const body = add('bot', '…'); let answer = '';
+  try {
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked})});
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
+    while (true) {
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true}); const parts = buf.split('\n\n'); buf = parts.pop();
+      for (const p of parts) { if (!p.startsWith('data:')) continue; const ev = JSON.parse(p.slice(5));
+        if (ev.type==='sources') showSources(ev.sources);
+        else if (ev.type==='token') { answer += ev.content; render(body, answer); }
+        else if (ev.type==='error') { answer += '\n⚠ ' + ev.error; render(body, answer); } }
+    }
+  } catch (err) { render(body, (answer||'') + '\n⚠ ' + err); }
+  history.push({role:'assistant', content:answer}); sendBtn.disabled = false; q.focus();
+});
+(async () => {
+  try { const h = await (await fetch('/api/health')).json();
+    document.getElementById('status').innerHTML = `<span class="dot ${h.ok?'ok':''}"></span>LLM: <b>${h.model}</b> @ ${h.base_url} · RAG ${h.rag?'on':'off'}`;
+  } catch(e) {}
+  try { const s = await (await fetch('/api/sources')).json();
+    document.getElementById('corpus').innerHTML = `<b>${s.n_docs}</b> documents · <b>${s.n_chunks}</b> passages<br>${s.date_range ? s.date_range.join(' → ') : ''}<br>embeddings: ${s.embed_model||''}`;
+  } catch(e) {}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# environments
+.venv/
+__pycache__/
+*.pyc
+
+# large artefacts (kept on the DGX Spark, not in git)
+checkpoints/
+models/
+data/raw/
+data/index/embeddings.npy
+data/index/chunks.jsonl
+data/curated/docs.jsonl
+data/curated/chunks.jsonl
+data/sft/raw_pairs.jsonl
+logs/
+*.gguf
+*.safetensors
+
+# keep small, reviewable artefacts
+!data/curated/stats.json
+!data/sft/train.jsonl
+!data/sft/val.jsonl
+!data/index/meta.json
+!eval/summary.json

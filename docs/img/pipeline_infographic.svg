@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="900" viewBox="0 0 1720 900" font-family="Inter, Helvetica, Arial, sans-serif">
+<rect width="1720" height="900" fill="#0f1115"/>
+<text x="60" y="70" fill="#f3f4f6" font-size="40" font-weight="800">JensenAI <tspan fill="#76B900">·</tspan> how NVIDIA Insight was formulated</text>
+<text x="60" y="104" fill="#9aa3af" font-size="18">Everything Jensen Huang said in public, 2026-04-24 → 2026-10-24, distilled into a 4B Nemotron model and a cited Q&amp;A app — all on one DGX Spark.</text>
+<rect x="60" y="150" width="300" height="250" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="60" y="150" width="6" height="250" rx="3" fill="#76B900"/>
+<text x="80" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 1</text>
+<text x="80" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Collect</text>
+<text x="80" y="250" fill="#76B900" font-size="30" font-weight="800">311 docs</text>
+<text x="80" y="280" fill="#9aa3af" font-size="14">138 YouTube caption tracks (yt-dlp)</text>
+<text x="80" y="301" fill="#9aa3af" font-size="14">173 web pages / transcripts / PDFs</text>
+<text x="80" y="322" fill="#9aa3af" font-size="14">NVIDIA Newsroom + Blog + news RSS</text>
+<text x="80" y="343" fill="#9aa3af" font-size="14">16 date-sorted YouTube searches</text>
+<line x1="364" y1="275.0" x2="376" y2="275.0" stroke="#76B900" stroke-width="3"/><polygon points="374,267.0 386,275.0 374,283.0" fill="#76B900"/>
+<rect x="390" y="150" width="300" height="250" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="390" y="150" width="6" height="250" rx="3" fill="#76B900"/>
+<text x="410" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 2</text>
+<text x="410" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Curate</text>
+<text x="410" y="250" fill="#76B900" font-size="30" font-weight="800">2,389 chunks</text>
+<text x="410" y="280" fill="#9aa3af" font-size="14">311 docs loaded → 173 kept</text>
+<text x="410" y="301" fill="#9aa3af" font-size="14">lang-ID · quality · exact + fuzzy dedup</text>
+<text x="410" y="322" fill="#9aa3af" font-size="14">title &amp; relevance &amp; date filters</text>
+<text x="410" y="343" fill="#9aa3af" font-size="14">676,964 words, 350-word chunks</text>
+<line x1="694" y1="275.0" x2="706" y2="275.0" stroke="#76B900" stroke-width="3"/><polygon points="704,267.0 716,275.0 704,283.0" fill="#76B900"/>
+<rect x="720" y="150" width="300" height="250" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="720" y="150" width="6" height="250" rx="3" fill="#76B900"/>
+<text x="740" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 3</text>
+<text x="740" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Synthesize</text>
+<text x="740" y="250" fill="#76B900" font-size="30" font-weight="800">719 Q&amp;A pairs</text>
+<text x="740" y="280" fill="#9aa3af" font-size="14">teacher: Nemotron-3-Super (Ollama)</text>
+<text x="740" y="301" fill="#9aa3af" font-size="14">3 grounded, attributed pairs / chunk</text>
+<text x="740" y="322" fill="#9aa3af" font-size="14">662 train · 57 held-out</text>
+<text x="740" y="343" fill="#9aa3af" font-size="14">OpenAI messages JSONL</text>
+<line x1="1024" y1="275.0" x2="1036" y2="275.0" stroke="#76B900" stroke-width="3"/><polygon points="1034,267.0 1046,275.0 1034,283.0" fill="#76B900"/>
+<rect x="1050" y="150" width="300" height="250" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="1050" y="150" width="6" height="250" rx="3" fill="#76B900"/>
+<text x="1070" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 4</text>
+<text x="1070" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Fine-tune</text>
+<text x="1070" y="250" fill="#76B900" font-size="30" font-weight="800">LoRA r16 · α32</text>
+<text x="1070" y="280" fill="#9aa3af" font-size="14">NeMo AutoModel 26.08 container</text>
+<text x="1070" y="301" fill="#9aa3af" font-size="14">Nemotron-3-Nano-4B (hybrid Mamba-2)</text>
+<text x="1070" y="322" fill="#9aa3af" font-size="14">19.2M trainable (0.48%) · bf16 · FSDP2</text>
+<text x="1070" y="343" fill="#9aa3af" font-size="14">AdamW 1e-4 cosine · 3 epochs</text>
+<line x1="1354" y1="275.0" x2="1366" y2="275.0" stroke="#76B900" stroke-width="3"/><polygon points="1364,267.0 1376,275.0 1364,283.0" fill="#76B900"/>
+<rect x="1380" y="150" width="300" height="250" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="1380" y="150" width="6" height="250" rx="3" fill="#76B900"/>
+<text x="1400" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 5</text>
+<text x="1400" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Serve</text>
+<text x="1400" y="250" fill="#76B900" font-size="30" font-weight="800">vLLM + RAG</text>
+<text x="1400" y="280" fill="#9aa3af" font-size="14">merged checkpoint → vLLM 26.02</text>
+<text x="1400" y="301" fill="#9aa3af" font-size="14">Nemotron-3-Embed-1B (2048-d) + BM25</text>
+<text x="1400" y="322" fill="#9aa3af" font-size="14">reciprocal-rank fusion, [n] citations</text>
+<text x="1400" y="343" fill="#9aa3af" font-size="14">FastAPI · SSE · systemd on :8600</text>
+<rect x="60" y="450" width="800" height="330" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<text x="84" y="490" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">PLATFORM</text>
+<text x="84" y="522" fill="#f3f4f6" font-size="22" font-weight="700">NVIDIA DGX Spark — single box, no cloud</text>
+<circle cx="92" cy="549" r="4" fill="#76B900"/>
+<text x="108" y="554" fill="#9aa3af" font-size="16">GB10 Grace Blackwell · 128 GB unified memory · CUDA 13</text>
+<circle cx="92" cy="583" r="4" fill="#76B900"/>
+<text x="108" y="588" fill="#9aa3af" font-size="16">Teacher (120B MoE), student training, embeddings and serving share one GPU</text>
+<circle cx="92" cy="617" r="4" fill="#76B900"/>
+<text x="108" y="622" fill="#9aa3af" font-size="16">Training: nvcr.io/nvidia/nemo-automodel:26.08 (official Spark playbook)</text>
+<circle cx="92" cy="651" r="4" fill="#76B900"/>
+<text x="108" y="656" fill="#9aa3af" font-size="16">Serving: nvcr.io/nvidia/vllm:26.02-py3, mamba cache fp32, reasoning toggle</text>
+<circle cx="92" cy="685" r="4" fill="#76B900"/>
+<text x="108" y="690" fill="#9aa3af" font-size="16">Open models only: Nemotron-3 Nano 4B · Super 120B-A12B · Embed 1B</text>
+<circle cx="92" cy="719" r="4" fill="#76B900"/>
+<text x="108" y="724" fill="#9aa3af" font-size="16">Nemotron Open Model License · reproducible with 8 scripts</text>
+<rect x="890" y="450" width="790" height="330" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<text x="914" y="490" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">RESULTS · HELD-OUT Q&amp;A</text>
+<text x="914" y="522" fill="#f3f4f6" font-size="22" font-weight="700">Base vs fine-tuned Nemotron-3-Nano-4B (57 questions)</text>
+<text x="914" y="560" fill="#9aa3af" font-size="15">Token F1</text>
+<rect x="914" y="568" width="175" height="14" rx="4" fill="#5b6270"/>
+<text x="1097" y="580" fill="#f3f4f6" font-size="13">base 0.313</text>
+<rect x="914" y="588" width="212" height="14" rx="4" fill="#76B900"/>
+<text x="1134" y="600" fill="#f3f4f6" font-size="13">fine-tuned 0.380</text>
+<text x="914" y="630" fill="#9aa3af" font-size="15">ROUGE-L</text>
+<rect x="914" y="638" width="115" height="14" rx="4" fill="#5b6270"/>
+<text x="1037" y="650" fill="#f3f4f6" font-size="13">base 0.207</text>
+<rect x="914" y="658" width="152" height="14" rx="4" fill="#76B900"/>
+<text x="1074" y="670" fill="#f3f4f6" font-size="13">fine-tuned 0.273</text>
+<text x="914" y="700" fill="#9aa3af" font-size="15">Judge score (1–5, Nemotron-3-Super)</text>
+<rect x="914" y="708" width="159" height="14" rx="4" fill="#5b6270"/>
+<text x="1081" y="720" fill="#f3f4f6" font-size="13">base 1.421</text>
+<rect x="914" y="728" width="214" height="14" rx="4" fill="#76B900"/>
+<text x="1136" y="740" fill="#f3f4f6" font-size="13">fine-tuned 1.912</text>
+<text x="60" y="872" fill="#5b6270" font-size="13">github.com/bsudharsh1979/jensenai · generated by scripts/09_render_infographic.py from the pipeline artefacts</text>
+</svg>

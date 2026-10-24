@@ -1,0 +1,70 @@
+# Data sources for the Jensen Huang / NVIDIA corpus.
+# Window: last 6 months relative to project date (2026-10-24).
+window:
+  start: "2026-04-24"
+  end: "2026-10-24"
+
+youtube:
+  # Explicit videos (keynotes / long-form) – always fetched.
+  video_ids:
+    - v-NGxyPjcrE   # NVIDIA GTC Berlin 2026 Keynote (Oct 21, 2026)
+    - wSp6AiNIrsY   # NVIDIA GTC Taipei / Computex 2026 Keynote (Jun 1, 2026)
+  # Search queries, newest-first; results filtered by upload date + title/channel heuristics.
+  search_queries:
+    - "Jensen Huang keynote 2026"
+    - "Jensen Huang GTC 2026"
+    - "Jensen Huang interview 2026"
+    - "Jensen Huang fireside chat 2026"
+    - "NVIDIA CEO Jensen Huang speech"
+    - "Jensen Huang podcast 2026"
+    - "Jensen Huang commencement 2026"
+    - "Jensen Huang earnings call 2026"
+    - "Jensen Huang Computex 2026"
+    - "Jensen Huang SIGGRAPH 2026"
+    - "Jensen Huang GTC Berlin"
+    - "Jensen Huang GTC Paris 2026"
+    - "Jensen Huang CNBC 2026"
+    - "Jensen Huang Bloomberg interview 2026"
+    - "NVIDIA Q2 FY2027 earnings call"
+    - "NVIDIA Q1 FY2027 earnings call"
+  results_per_query: 30
+  min_duration_sec: 300
+  # A result must match one of these in title or uploader (case-insensitive).
+  must_match_any: ["jensen", "huang", "nvidia"]
+
+web:
+  # Hand-curated primary sources (speech transcripts, press releases, investor events).
+  seed_urls:
+    - https://scribehawk.com/transcript/nvidia-ceo-jensen-huang-delivers-keynote-at-computex-2026-in-taiwan-full-speech
+    - https://stockanalysis.com/stocks/nvda/transcripts/710012-siggraph-2026-keynote/
+    - https://stockanalysis.com/stocks/nvda/transcripts/676136-q2-2027/
+    - https://s201.q4cdn.com/141608511/files/content_files/TRANSCRIPT_-NVIDIA-Corp-NVDA-US-Q2-2027-Earnings-Call-26-August-2026-5_00-PM-ET.pdf
+    - https://www.investing.com/news/transcripts/nvidia-at-gtc-berlin-2026-keynote-europes-ai-buildout-93CH-4962500
+    - https://www.investing.com/news/transcripts/earnings-call-transcript-nvidia-beats-q2-2026-estimates-as-ai-demand-stays-hot-93ch-4878028
+    - https://eu.36kr.com/en/p/4035763910219649
+    - https://blogs.nvidia.com/blog/gtc-berlin-2026-keynote/
+    - https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-second-quarter-fiscal-2027
+    - https://r40.io/stocks/nvda/earnings/2027-q2/transcript/
+  # Index pages: every link matching `link_regex` on the page is crawled (1 level).
+  index_pages:
+    - url: https://stockanalysis.com/stocks/nvda/transcripts/
+      link_regex: "/stocks/nvda/transcripts/\\d+-"
+    - url: https://nvidianews.nvidia.com/news
+      link_regex: "nvidianews\\.nvidia\\.com/news/[a-z0-9-]+$"
+    - url: https://blogs.nvidia.com/
+      link_regex: "blogs\\.nvidia\\.com/blog/[a-z0-9-]+/?$"
+  rss_feeds:
+    - https://nvidianews.nvidia.com/releases.xml
+    - https://blogs.nvidia.com/feed/
+    - https://www.bing.com/news/search?q=%22Jensen+Huang%22&format=rss
+    - https://www.bing.com/news/search?q=%22Jensen+Huang%22+keynote&format=rss
+    - https://www.bing.com/news/search?q=%22Jensen+Huang%22+interview&format=rss
+    - https://www.bing.com/news/search?q=%22Jensen+Huang%22+said&format=rss
+    - https://www.bing.com/news/search?q=NVIDIA+earnings+Jensen+Huang&format=rss
+    - https://www.bing.com/news/search?q=NVIDIA+GTC+2026&format=rss
+    - https://www.bing.com/news/search?q=NVIDIA+Vera+Rubin&format=rss
+    - https://www.bing.com/news/search?q=NVIDIA+DGX+Spark&format=rss
+  # Article must mention one of these to be kept.
+  must_mention_any: ["Jensen Huang", "Huang", "NVIDIA", "Nvidia"]
+  max_pages: 600
+  request_timeout: 25

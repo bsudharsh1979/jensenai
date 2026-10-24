@@ -1,0 +1,18 @@
+# systemd *user* unit: NVIDIA Insight web app (FastAPI + RAG) on :8600.
+[Unit]
+Description=NVIDIA Insight - Jensen Huang Q&A app (FastAPI + Nemotron RAG)
+After=jensen-vllm.service
+Wants=jensen-vllm.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/jensenai
+Environment=LLM_BASE_URL=http://127.0.0.1:8000/v1
+Environment=LLM_MODEL=nemotron-nano-4b-jensen
+Environment=APP_PORT=8600
+ExecStart=%h/jensenai/deploy/run_app.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

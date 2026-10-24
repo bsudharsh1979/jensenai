@@ -1,0 +1,31 @@
+# Host-side pipeline + app dependencies (training runs inside nvcr.io/nvidia/nemo-automodel:26.08).
+# Install torch first for your CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu130
+transformers>=5.2.0
+sentence-transformers>=5.4.1
+huggingface_hub
+datasets
+accelerate
+peft
+safetensors
+numpy
+pyyaml
+tqdm
+httpx
+# data collection / curation
+yt-dlp
+trafilatura
+feedparser
+beautifulsoup4
+lxml
+pypdf
+langdetect
+rapidfuzz
+# retrieval + app
+rank-bm25
+fastapi
+uvicorn[standard]
+pydantic
+# GGUF export (optional, Ollama path)
+gguf
+sentencepiece
+protobuf

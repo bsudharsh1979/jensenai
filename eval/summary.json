@@ -1,0 +1,22 @@
+{
+  "systems": {
+    "tuned": "nemotron-nano-4b-jensen",
+    "base": "nano4b-base"
+  },
+  "metrics": {
+    "tuned": {
+      "n": 57,
+      "f1": 0.3802,
+      "rougeL": 0.2729,
+      "judge_mean": 1.912,
+      "judge_n": 57
+    },
+    "base": {
+      "n": 57,
+      "f1": 0.3134,
+      "rougeL": 0.2066,
+      "judge_mean": 1.421,
+      "judge_n": 57
+    }
+  }
+}
