@@ -1,4 +1,6 @@
-# systemd *user* unit: vLLM serving the fine-tuned model (OpenAI API on :8000).
+# systemd *user* unit (OPTIONAL): vLLM serving the fine-tuned model (OpenAI API on :8000).
+# Use this instead of Ollama for the fast mode when Nemotron-3-Super is not loaded (memory: ~30 GB reserved).
+# Pair with: Environment=FAST_BACKEND=openai FAST_BASE_URL=http://127.0.0.1:8000/v1 in jensen-insight.service.
 # Install:  mkdir -p ~/.config/systemd/user && cp deploy/systemd/*.service ~/.config/systemd/user/
 #           systemctl --user daemon-reload && systemctl --user enable --now jensen-vllm jensen-insight
 #           loginctl enable-linger $USER   # keep running after logout / across reboots

@@ -2,10 +2,12 @@
 
 ![NVIDIA Insight on DGX Spark](docs/img/app_infographic.jpg)
 
-A fully local, end-to-end pipeline that fine-tunes **NVIDIA Nemotron-3-Nano-4B** on everything Jensen Huang said in
-public during the last six months (Apr 24 – Oct 24 2026: GTC Taipei/Computex, SIGGRAPH, GTC Berlin, Q1/Q2 FY27
-earnings calls, analyst conferences, commencement speeches, interviews and podcasts) and serves it as a
-retrieval-augmented Q&A web app on a single **DGX Spark (GB10, 128 GB unified memory)**.
+A fully local, end-to-end pipeline that turns everything Jensen Huang said in public during the last six months
+(Apr 24 – Oct 24 2026: GTC Taipei/Computex, SIGGRAPH, GTC Berlin, Q1/Q2 FY27 earnings calls, analyst conferences,
+commencement speeches, interviews and podcasts) into an analyst-grade, fully cited Q&A web app on a single
+**DGX Spark (GB10, 128 GB unified memory)**. Two Nemotron generators sit behind one curated retrieval index:
+**Expert** mode uses **Nemotron-3-Super 120B-A12B** for six-section expert briefings; **Fast** mode uses
+**Nemotron-3-Nano-4B LoRA-fine-tuned** on the corpus (NeMo AutoModel) for quick answers.
 
 ```
 YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-Curator-style curation
@@ -14,7 +16,7 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
         │                                                                  ▼
         │                      NeMo AutoModel LoRA SFT (nvcr.io/nvidia/nemo-automodel:26.08) on Nemotron-3-Nano-4B
         │                                                                  ▼
-        └── Nemotron-3-Embed-1B + BM25 hybrid index ──► FastAPI app ◄── vLLM (nvcr.io/nvidia/vllm:26.02-py3)
+        └── Nemotron-3-Embed-1B + BM25 + quality prior ──► FastAPI app ◄── Ollama: Nemotron-3-Super (expert) / fine-tuned Nano-4B GGUF (fast)
 ```
 
 > **Executive summary with infographics:** [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md)
@@ -25,24 +27,26 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 
 **Key features**
 
-* **Fine-tuned Nemotron-3-Nano-4B** — LoRA SFT on 6 months of Jensen Huang keynotes, earnings calls, interviews and NVIDIA press, trained with NeMo AutoModel on the DGX Spark itself.
-* **Hybrid RAG with citations** — Nemotron-3-Embed-1B dense retrieval fused with BM25; every answer carries `[n]` citations that link to the source speech or article.
+* **Expert mode: Nemotron-3-Super 120B-A12B** — the strongest Nemotron that fits on a Spark, running locally in Ollama; reads 8–10 retrieved transcript passages and writes an analyst briefing in which every factual sentence is cited and anything the sources don't cover is said to be not covered.
+* **Fast mode: fine-tuned Nemotron-3-Nano-4B** — LoRA SFT on 6 months of Jensen Huang keynotes, earnings calls, interviews and NVIDIA press, trained with NeMo AutoModel on the DGX Spark itself; exported to GGUF for Ollama (~30 s per briefing).
+* **Hybrid RAG with guaranteed citations** — Nemotron-3-Embed-1B dense retrieval fused with BM25 and a *source-quality prior* (verbatim transcripts and NVIDIA publications outrank live-stream chatter and reaction videos). After generation, any sentence the model left uncited is attributed to the best-matching passage with the same embedding model, and the sources panel shows which passages were actually cited.
 * **Runs 100% on DGX Spark** — teacher, training, embeddings, inference and web app on one GB10 box; nothing leaves the machine.
-* **Structured analyst briefings** — every answer is written in paragraphs under six fixed sections: *Summary · Technical view · Business view · Real-world use cases · Who is already using it · Insights*, so one question yields the engineering facts, the commercial meaning, concrete deployment scenarios, named adopters (only those the sources name, each cited) and non-obvious takeaways. A second, adopter-focused retrieval pass feeds the "who is using it" section. `structured: false` in the API request returns a short direct answer instead.
+* **Structured analyst briefings** — every answer is written in paragraphs under six fixed sections: *Summary · Technical view · Business view · Real-world use cases · Who is already using it · Insights*, so one question yields the engineering facts, the commercial meaning, concrete deployment scenarios, named adopters (only those the sources name, each cited) and non-obvious takeaways. `structured: false` in the API request returns a short direct answer instead.
 * **Streaming web chat UI** — token-by-token SSE answers rendered with section headings, sources panel, RAG on/off toggle, example questions.
 
 **Main benefits**
 
 * **Private** — no cloud API, no data egress, no per-token cost.
-* **Accurate** — retrieval keeps dates, dollar figures and attributions exact; the fine-tune supplies the vocabulary and recall a stock 4B model lacks (the base model answers GTC Berlin 2026 questions with H100-era facts).
-* **Fast** — a 4B model answers in seconds on the Spark while leaving >100 GB free for other workloads.
+* **Accurate** — spot-checked expert answers reproduce every figure from the transcripts (Q2 FY27: $96.2 B revenue, $89 B data center, $108 B ±2 % Q3 guide, 75 % GM, $279 B supply commitments, $26 B returned to shareholders, $32 B inventory, ~70 % FY28 growth) and refuse to name adopters the sources don't name.
+* **Two speeds** — Expert briefings in ~60 s (Nemotron-3-Super, ~20 tok/s on GB10); Fast answers in ~30 s from the fine-tuned 4B.
 * **Stays current** — re-run the nine numbered scripts to extend the corpus and re-train in well under an hour (collection aside, training takes ~7 minutes).
 
 **Added features**
 
-* **Thinking mode on/off** per request (`chat_template_kwargs.enable_thinking`) through the Nano-v3 reasoning parser.
-* **OpenAI-compatible API** on `:8000` (vLLM) and a simple `/api/answer` JSON endpoint on `:8600`, so any client or agent framework can use it.
-* **Systemd services** — `jensen-vllm` and `jensen-insight` start with the Spark.
+* **Mode switch in the UI and API** (`"mode": "expert" | "fast"`); the app evicts the other mode's model from Ollama first because Super (~91 GB) and anything else cannot share the Spark's memory with other workloads.
+* **Thinking mode on/off** per mode (`EXPERT_THINKING=true` to let Super reason before answering).
+* **JSON endpoint** `/api/answer` and SSE endpoint `/api/chat` on `:8600`; optional OpenAI-compatible vLLM serving of the fine-tuned model (`deploy/vllm_serve.sh`, `jensen-vllm.service`) when Super is not in use.
+* **Systemd service** — `jensen-insight` starts with the Spark (Ollama must be running).
 * **Built-in evaluation** — base vs fine-tuned token-F1, ROUGE-L and Nemotron-3-Super LLM-as-judge on a held-out split.
 * **Alternative Ollama/GGUF path** and an **auto-generated pipeline infographic** rendered from the measured artefacts.
 
@@ -50,14 +54,14 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 
 | Area | What it does | Why it matters |
 |---|---|---|
-| **Model choice** | `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` — 4B hybrid Mamba-2/Transformer SLM, 262K context, Nemotron Open Model License, *explicitly targeted at DGX Spark / Jetson Thor / RTX* | Fits comfortably next to other workloads on the Spark's 128 GB; dense (no MoE routing to manage); the Nemotron 3 family's best accuracy-per-watt for edge agents |
+| **Model choice** | Fine-tune target: `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` — 4B hybrid Mamba-2/Transformer SLM, 262K context, *explicitly targeted at DGX Spark*. Expert generator: `nemotron-3-super` (120B-A12B MoE, Q4_K_M, Ollama) — the largest Nemotron that fits in 128 GB | The 4B trains in minutes and answers in seconds; testing showed a 4B cannot sustain expert-level, hallucination-free synthesis over 8–10 long passages, while Super reproduces transcript figures exactly, so the app offers both |
 | **Data collection** | `yt-dlp` pulls captions for every keynote/interview found by 16 date-sorted YouTube searches; `trafilatura` extracts transcripts (StockAnalysis, Investing.com, ScribeHawk, FactSet PDF), NVIDIA Newsroom/Blog RSS and Bing News RSS for press coverage | 300+ raw documents, ~900K words, all from the 6-month window |
 | **Curation (NeMo Curator stages)** | Unicode/boilerplate cleaning → language ID → heuristic quality filters (length, symbol ratio, repeated n-grams) → exact dedup → near-dup dedup with hashed 5-gram shingles (catches re-streams of the same keynote) → relevance & time-window filters → sentence-aware chunking | 173 docs / 2,389 passages / 677K words of clean, de-duplicated, on-topic text |
 | **Synthetic SFT data** | `nvidia/nemotron-3-super` (Ollama, thinking off) writes 3 self-contained, source-attributed Q&A pairs per passage; teacher is told to attribute statements only when the speaker is clear | 719 Q&A pairs (662 train / 57 held-out) from 260 prioritised passages; Nemotron post-training recipe for domain data: a larger Nemotron teacher distils knowledge *and* an "attributed answer" style into the small student |
 | **Fine-tuning (NeMo best practices)** | NeMo AutoModel recipe `configs/nemotron_nano_4b_jensen_lora_rtx_spark.yaml` derived from NVIDIA's official `nemotron_nano_4b_squad_peft.yaml` and the `*_rtx_spark.yaml` memory settings: LoRA r=16 / α=32 / dropout 0.05 on all linear layers except Mamba `out_proj`, AdamW 1e-4 cosine with warm-up, bf16, FSDP2 + activation checkpointing, answer-only loss on the model's own chat template (`ChatDataset`) | Runs in the DGX Spark-validated `nemo-automodel:26.08` container with the pinned Spark fix commit; 19.2M trainable params (0.48%), ~8.7 GB peak memory, 249 steps in 6.5 min |
 | **Merge & export** | LoRA merged into a standalone HF checkpoint (`scripts/06_merge_lora.py`), optional GGUF export for Ollama | One artefact deployable by vLLM, TensorRT-LLM, Ollama |
-| **Serving** | vLLM container recommended by the model card for Spark/Thor, with `--mamba_ssm_cache_dtype float32` and the Nano-v3 reasoning parser; OpenAI-compatible API | Drop-in for any OpenAI client; thinking mode can be toggled per request |
-| **RAG** | `nvidia/Nemotron-3-Embed-1B-BF16` dense retrieval + BM25, reciprocal-rank fusion, per-document cap, inline `[n]` citations with links back to the speech/article | Fine-tune gives the model Jensen's recent worldview and vocabulary; retrieval keeps numbers and dates exact and verifiable |
+| **Serving** | Ollama hosts both generators (Super resident, fine-tuned Nano GGUF on demand); vLLM (`nvcr.io/nvidia/vllm:26.02-py3`, `--mamba_ssm_cache_dtype float32`) remains available for the fine-tuned model | One runtime, native thinking toggle and context control; app-level eviction keeps memory safe |
+| **RAG** | `nvidia/Nemotron-3-Embed-1B-BF16` dense retrieval + BM25, reciprocal-rank fusion, source-quality prior, per-document caps, embedding-based citation attribution for uncited sentences | Numbers, dates and attributions come from verbatim transcripts and are verifiable in one click |
 | **App** | FastAPI + streaming SSE chat UI, structured six-section analyst briefings (technical / business / use cases / adopters / insights), `/api/answer` JSON endpoint, corpus browser, systemd user units for boot-time start | Runs as a service on the DGX Spark at `http://<spark>:8600` |
 | **Evaluation** | Base vs fine-tuned on a held-out split: token-F1, ROUGE-L and Nemotron-3-Super LLM-as-judge | +21% F1, +32% ROUGE-L, +35% judge score; see [Results](#results) |
 
@@ -117,31 +121,29 @@ scripts/06_merge_lora.sh
 # 7    retrieval index
 .venv/bin/python scripts/08_build_index.py
 
-# 8    serve + app
-docker pull nvcr.io/nvidia/vllm:26.02-py3
-deploy/vllm_serve.sh &          # OpenAI API on :8000  (served name: nemotron-nano-4b-jensen)
-deploy/run_app.sh               # web UI on :8600
+# 8    serve + app  (Ollama must be running; `ollama pull nemotron-3-super` for expert mode)
+scripts/06b_export_gguf.py && (cd deploy && ollama create nemotron-nano-4b-jensen -f Modelfile)
+deploy/run_app.sh               # web UI on :8600  (expert = Nemotron-3-Super, fast = fine-tuned Nano)
 ```
 
 Make it a permanent service on the Spark:
 
 ```bash
 mkdir -p ~/.config/systemd/user && cp deploy/systemd/*.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now jensen-vllm jensen-insight
+systemctl --user daemon-reload && systemctl --user enable --now jensen-insight
 loginctl enable-linger $USER
 ```
 
-### Alternative backend: Ollama
-
-`scripts/06_merge_lora.sh` produces a HF checkpoint; convert it with llama.cpp and register it in Ollama
-(the Open WebUI stack already on the Spark can then use it):
+### GGUF export for Ollama (fast mode)
 
 ```bash
-python ~/llama.cpp/convert_hf_to_gguf.py models/nemotron-nano-4b-jensen-merged --outtype bf16 \
-       --outfile models/gguf/nemotron-nano-4b-jensen-bf16.gguf
-ollama create nemotron-nano-4b-jensen -f deploy/Modelfile
-LLM_BASE_URL=http://127.0.0.1:11434/v1 LLM_MODEL=nemotron-nano-4b-jensen deploy/run_app.sh
+scripts/06b_export_gguf.py                       # -> models/gguf/nemotron-nano-4b-jensen-bf16.gguf
+cd deploy && ollama create nemotron-nano-4b-jensen -f Modelfile && cd ..
 ```
+
+`06b_export_gguf.py` wraps llama.cpp's converter with one fix: transformers ≥ 5 fills Nemotron-H configs with MoE
+defaults, so the dense 4B is otherwise exported as `nemotron_h_moe` and crashes the Ollama runner. The Modelfile
+carries the exact Nemotron-3 ChatML template with the non-thinking `<think></think>` prefix.
 
 ## NeMo fine-tuning details
 
@@ -161,6 +163,18 @@ The recipe follows the DGX Spark playbook ("Fine-Tune with NVIDIA NeMo") and the
 
 ## Results
 
+### Expert mode in production (Nemotron-3-Super + RAG)
+
+Spot checks on the live app, each answer verified line-by-line against the curated transcripts:
+
+| Question | Verified facts in the answer | Adopters section | Time |
+|---|---|---|---|
+| Q2 FY2027 results and Q3 guidance | $96.2 B revenue (+106 % y/y), $89 B data center (92.7 %), hyperscale $49 B / ACIE $40 B, adj. EPS $2.22, 75 % GM, Q3 guide $108 B ±2 %, $279 B supply commitments, $26 B returned ($20 B buybacks), $32 B inventory, ~70 % FY28 growth, 15–100× agentic compute | "The sources do not name specific adopters" (correct) | 78 s incl. model load |
+| GTC Berlin 2026 announcements | DSX Pod, OpenShell, Sentry, Hyperion, RTX Spark, DGX Station with Windows, ~$10 B Europe commitment, 14 startup investments, 12,000+ partnerships, $10 B cost of a 3-month 1 GW delay | L'Oréal, Revolut, Spotify, Merck, Vodafone, Zara, Porsche, Nestlé, HSBC — all named in the keynote | 60 s |
+| AI as manufacturing / jobs follow-up | May 29 interview, "exactly backward", radiology/law/software examples, PC-revolution analogy | — | 63 s |
+
+### Fine-tune evaluation (fast mode model)
+
 Held-out split: 57 Q&A pairs never seen in training (`data/sft/val.jsonl`), both models served by vLLM with
 thinking off, temperature 0.2, no retrieval (pure model knowledge). Judge: Nemotron-3-Super scoring factual agreement
 with the reference 1–5. Full per-question outputs in `eval/results.jsonl`.
@@ -177,7 +191,7 @@ the RAG layer closes — in the app the same question returns the correct figure
 loss 2.5 → 1.06, validation loss 2.01 → 1.72 (best at step 165 of 249; later epochs start to overfit, so the
 `LOWEST_VAL` checkpoint is the one merged). Wall-clock on GB10: 6.5 min training, 1 min merge.
 
-Live check on the Spark (fine-tuned model + RAG, structured briefing, `POST /api/answer`, ~45 s for ~470 words):
+Live check of the fine-tuned 4B alone (fast mode, `POST /api/answer`, ~30 s):
 
 > *What did Jensen Huang announce at GTC Berlin 2026?* → **Summary:** DSX Pod — seven Vera Rubin racks in a
 > road-transportable shipping container — plus the containerised AI-factory platform, keynote 21 Oct 2026 [1][2];

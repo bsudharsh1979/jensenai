@@ -42,11 +42,17 @@
   .examples { display:flex; flex-wrap:wrap; gap:8px; max-width:860px; margin:0 auto 16px; }
   .examples button { background:#1a2a1c; color:var(--text); border:1px solid #27402a; font-weight:500; font-size:13px; }
   .corpus { color:var(--muted); font-size:12px; margin-bottom:14px; line-height:1.5; }
+  .src.uncited { opacity:.45; }
+  .src .tag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:4px; background:#1f3a22; color:var(--green); margin-left:6px; vertical-align:middle; }
+  .src.uncited .tag { background:#222; color:var(--muted); }
+  .thinking { color:var(--muted); font-size:13px; font-style:italic; }
+  .footnote { color:var(--muted); font-size:11px; margin-top:10px; border-top:1px solid var(--border); padding-top:6px; }
+  select { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:13px; }
 </style>
 </head>
 <body>
 <header>
-  <h1><span>NVIDIA</span> Insight · Jensen Huang Q&amp;A <small style="color:var(--muted);font-weight:400">· fine-tuned Nemotron-3-Nano-4B on DGX Spark</small></h1>
+  <h1><span>NVIDIA</span> Insight · Jensen Huang Q&amp;A <small style="color:var(--muted);font-weight:400">· Nemotron on DGX Spark</small></h1>
   <div class="status" id="status"><span class="dot"></span>connecting…</div>
 </header>
 <main>
@@ -56,6 +62,10 @@
     </div>
     <form id="form">
       <input id="q" type="text" placeholder="Ask about NVIDIA, Jensen Huang's keynotes, earnings, Vera Rubin, DGX Spark…" autocomplete="off" required>
+      <select id="mode" title="Generator">
+        <option value="expert">Expert · Nemotron-3-Super 120B</option>
+        <option value="fast">Fast · fine-tuned Nemotron-Nano-4B</option>
+      </select>
       <label class="toggle"><input type="checkbox" id="rag" checked> RAG</label>
       <button id="send" type="submit">Ask</button>
     </form>
@@ -104,24 +114,33 @@ function render(el, text) {
   }).join('');
   el.innerHTML = html; log.scrollTop = log.scrollHeight;
 }
-function showSources(s) {
+let lastSources = [];
+function showSources(s, cited) {
+  lastSources = s;
   if (!s.length) { srcEl.innerHTML = '<div class="corpus">No passages retrieved (RAG off or empty index).</div>'; return; }
-  srcEl.innerHTML = s.map((x,i)=>`<div class="src"><a href="${x.url||'#'}" target="_blank">[${i+1}] ${x.title||'Untitled'}</a><div class="meta">${x.date||''} · ${x.source_type||''}</div><div class="snip">${(x.snippet||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}…</div></div>`).join('');
+  const esc = t => (t||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const order = s.map((x,i)=>({x,i})).sort((a,b)=> (cited ? (cited.includes(b.i+1)) - (cited.includes(a.i+1)) : 0) || a.i-b.i);
+  srcEl.innerHTML = (cited ? `<div class="corpus">${cited.length} of ${s.length} retrieved passages were cited in the answer; uncited ones are dimmed.</div>` : '') +
+    order.map(({x,i})=>`<div class="src ${cited && !cited.includes(i+1) ? 'uncited':''}"><a href="${x.url||'#'}" target="_blank">[${i+1}] ${esc(x.title)||'Untitled'}</a>${cited ? `<span class="tag">${cited.includes(i+1)?'cited':'not cited'}</span>`:''}<div class="meta">${x.date||''} · ${x.source_type||''}</div><div class="snip">${esc(x.snippet)}…</div></div>`).join('');
 }
 form.addEventListener('submit', async e => {
   e.preventDefault(); const text = q.value.trim(); if (!text) return;
   q.value=''; sendBtn.disabled = true; ex.style.display='none';
   add('user', text); history.push({role:'user', content:text});
-  const body = add('bot', '…'); let answer = '';
+  const body = add('bot', '…'); let answer = ''; const t0 = Date.now();
+  const setStatus = t => { if (!answer) body.innerHTML = `<div class="thinking">${t}</div>`; };
   try {
-    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked})});
+    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked, mode: document.getElementById('mode').value})});
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
     while (true) {
       const {value, done} = await reader.read(); if (done) break;
       buf += dec.decode(value, {stream:true}); const parts = buf.split('\n\n'); buf = parts.pop();
       for (const p of parts) { if (!p.startsWith('data:')) continue; const ev = JSON.parse(p.slice(5));
         if (ev.type==='sources') showSources(ev.sources);
+        else if (ev.type==='status') setStatus(ev.text);
         else if (ev.type==='token') { answer += ev.content; render(body, answer); }
+        else if (ev.type==='final') { answer = ev.content; render(body, answer); }
+        else if (ev.type==='cited') { showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); }
         else if (ev.type==='error') { answer += '\n⚠ ' + ev.error; render(body, answer); } }
     }
   } catch (err) { render(body, (answer||'') + '\n⚠ ' + err); }
@@ -129,7 +148,9 @@ form.addEventListener('submit', async e => {
 });
 (async () => {
   try { const h = await (await fetch('/api/health')).json();
-    document.getElementById('status').innerHTML = `<span class="dot ${h.ok?'ok':''}"></span>LLM: <b>${h.model}</b> @ ${h.base_url} · RAG ${h.rag?'on':'off'}`;
+    const m = h.modes || {}; const line = Object.entries(m).map(([k,v])=>`${k}: <b>${v.model}</b> ${v.available?(v.loaded?'(loaded)':'(available)'):'(missing)'}`).join(' · ');
+    document.getElementById('status').innerHTML = `<span class="dot ${h.ok?'ok':''}"></span>${line} · RAG ${h.rag?'on':'off'}`;
+    document.getElementById('mode').value = h.default_mode || 'expert';
   } catch(e) {}
   try { const s = await (await fetch('/api/sources')).json();
     document.getElementById('corpus').innerHTML = `<b>${s.n_docs}</b> documents · <b>${s.n_chunks}</b> passages<br>${s.date_range ? s.date_range.join(' → ') : ''}<br>embeddings: ${s.embed_model||''}`;

@@ -78,9 +78,9 @@ def build(d: dict) -> str:
         ("4", "Fine-tune", "LoRA r16 · α32",
          ["NeMo AutoModel 26.08 container", "Nemotron-3-Nano-4B (hybrid Mamba-2)",
           "19.2M trainable (0.48%) · bf16 · FSDP2", "AdamW 1e-4 cosine · 3 epochs"]),
-        ("5", "Serve", "vLLM + RAG",
-         ["merged checkpoint → vLLM 26.02", f"Nemotron-3-Embed-1B ({d['dim']}-d) + BM25",
-          "reciprocal-rank fusion, [n] citations", "FastAPI · SSE · systemd on :8600"]),
+        ("5", "Serve", "2 Nemotrons + RAG",
+         ["expert: Nemotron-3-Super 120B (Ollama)", "fast: fine-tuned Nano-4B (GGUF/Ollama)",
+          f"Embed-1B ({d['dim']}-d) + BM25 + quality prior", "cited 6-section briefings · :8600"]),
     ]
     for i, (step, title, big, lines) in enumerate(cards):
         x = 60 + i * (cw + gap)
@@ -94,7 +94,7 @@ def build(d: dict) -> str:
     s.append(f'<text x="84" y="{by+40}" fill="{GREEN}" font-size="13" font-weight="700" letter-spacing="2">PLATFORM</text>')
     s.append(f'<text x="84" y="{by+72}" fill="{TXT}" font-size="22" font-weight="700">NVIDIA DGX Spark — single box, no cloud</text>')
     plat = ["GB10 Grace Blackwell · 128 GB unified memory · CUDA 13", "Teacher (120B MoE), student training, embeddings and serving share one GPU",
-            "Training: nvcr.io/nvidia/nemo-automodel:26.08 (official Spark playbook)", "Serving: nvcr.io/nvidia/vllm:26.02-py3, mamba cache fp32, reasoning toggle",
+            "Training: nvcr.io/nvidia/nemo-automodel:26.08 (official Spark playbook)", "Serving: Ollama (Super Q4_K_M ~91 GB resident, Nano GGUF on demand); vLLM optional",
             "Open models only: Nemotron-3 Nano 4B · Super 120B-A12B · Embed 1B", "Nemotron Open Model License · reproducible with 8 scripts"]
     for i, ln in enumerate(plat):
         s.append(f'<circle cx="92" cy="{by+104+i*34-5}" r="4" fill="{GREEN}"/>')

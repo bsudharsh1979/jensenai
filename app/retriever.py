@@ -12,6 +12,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "data" / "index"
 _TOKEN = re.compile(r"[a-z0-9]+")
+_NOISY_TITLE = re.compile(
+    r"\b(live|watch live|reaction|react|supercut|speechless|shocks|stunned|destroys|exposed|pregame|post.?game|"
+    r"stock|\$nvda|price target|should you buy|analysis|breakdown|explained|recap|summary|highlights|"
+    r"풀이|解説|分析)\b", re.I)
+_FILLER = re.compile(r"\b(um+|uh+|you know|like,|sort of|kind of)\b", re.I)
 
 
 def _tok(s: str) -> list[str]:
@@ -38,8 +43,9 @@ class Retriever:
             model_kwargs={"dtype": torch.bfloat16 if device == "cuda" else torch.float32, "attn_implementation": "sdpa"},
         )
         self.model.max_seq_length = 512
+        self._quality = np.array([self._quality_prior(c) for c in self.chunks], dtype=np.float32)
 
-    def search(self, query: str, top_k: int = 6, candidates: int = 40) -> list[dict]:
+    def search(self, query: str, top_k: int = 10, candidates: int = 60) -> list[dict]:
         q = self.model.encode_query([query], convert_to_numpy=True, normalize_embeddings=True)[0]
         dense = self.emb @ q
         dense_rank = np.argsort(-dense)[:candidates]
@@ -52,18 +58,84 @@ class Retriever:
             fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
         for r, i in enumerate(bm_rank):
             fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
+        # Source-quality prior: primary material (transcripts, earnings calls, NVIDIA's own publications)
+        # outranks live-stream commentary, reaction videos and filler-heavy speech-to-text at equal relevance.
+        for i in fused:
+            fused[i] *= self._quality[i]
         order = sorted(fused, key=lambda i: -fused[i])
 
         out, per_doc = [], {}
         for i in order:
             c = self.chunks[i]
-            if per_doc.get(c["doc_id"], 0) >= 2:
+            cap = 3 if self._quality[i] >= 1.0 else 1
+            if per_doc.get(c["doc_id"], 0) >= cap:
                 continue
             per_doc[c["doc_id"]] = per_doc.get(c["doc_id"], 0) + 1
-            out.append({**c, "score": round(float(fused[i]), 5), "dense": round(float(dense[i]), 4)})
+            out.append({**c, "idx": int(i), "score": round(float(fused[i]), 5), "dense": round(float(dense[i]), 4), "quality": round(float(self._quality[i]), 2)})
             if len(out) >= top_k:
                 break
         return out
+
+    @staticmethod
+    def _quality_prior(c: dict) -> float:
+        title = (c.get("title") or "").lower()
+        url = (c.get("url") or "").lower()
+        text = c.get("text") or ""
+        words = max(len(text.split()), 1)
+        q = 1.0
+        if c.get("source_type") == "web":
+            if any(k in url for k in ("nvidianews", "blogs.nvidia", "nvidia.com")):
+                q *= 1.35  # NVIDIA's own words
+            elif any(k in title for k in ("transcript", "earnings call", "keynote", "full speech", "remarks", "fireside")):
+                q *= 1.30  # verbatim transcripts
+            elif any(k in url for k in ("note.com", "medium.com", "substack", "reddit", "36kr")):
+                q *= 0.80  # blogs / aggregators
+        else:  # youtube captions
+            if _NOISY_TITLE.search(title):
+                q *= 0.55  # live-stream chatter, reaction and commentary channels
+            elif any(k in title for k in ("keynote", "earnings call", "fireside", "interview", "commencement", "transcript", "full")):
+                q *= 1.0
+            else:
+                q *= 0.85
+        filler = len(_FILLER.findall(text)) / words
+        if filler > 0.04:
+            q *= 0.7  # heavy "um / uh / you know": raw speech-to-text, often not Jensen
+        return q
+
+    _SENT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")
+    _CITE = re.compile(r"\[\d{1,2}\]")
+
+    def attribute(self, text: str, hits: list[dict], threshold: float = 0.38) -> tuple[str, list[int]]:
+        """Deterministic citation fallback. Any sentence the model left uncited is matched against the retrieved
+        passages with the same embedding model; if the best match is above ``threshold`` cosine similarity its
+        [n] is appended. Headings and short fragments are left alone. Returns (annotated text, cited ids)."""
+        if not hits:
+            return text, []
+        E = self.emb[[h["idx"] for h in hits]]
+        lines = text.split("\n")
+        todo: list[tuple[int, int, str]] = []  # (line no, sentence no, sentence)
+        split: dict[int, list[str]] = {}
+        for li, line in enumerate(lines):
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            sents = self._SENT.split(line.strip())
+            split[li] = sents
+            for si, sent in enumerate(sents):
+                if len(sent.split()) >= 6 and not self._CITE.search(sent):
+                    todo.append((li, si, sent))
+        if todo:
+            q = self.model.encode_query([t[2] for t in todo], convert_to_numpy=True, normalize_embeddings=True)
+            sims = q @ E.T
+            for (li, si, sent), row in zip(todo, sims):
+                best = int(row.argmax())
+                if row[best] >= threshold:
+                    tag = f" [{best + 1}]"
+                    split[li][si] = sent[:-1] + tag + sent[-1] if sent.endswith((".", "!", "?")) else sent + tag
+            for li, sents in split.items():
+                lines[li] = " ".join(sents)
+        out = "\n".join(lines)
+        cited = sorted({int(m) for m in re.findall(r"\[(\d{1,2})\]", out) if 1 <= int(m) <= len(hits)})
+        return out, cited
 
     def stats(self) -> dict:
         docs = {}

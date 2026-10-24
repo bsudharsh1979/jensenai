@@ -46,11 +46,11 @@
 <rect x="1380" y="150" width="6" height="250" rx="3" fill="#76B900"/>
 <text x="1400" y="180" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">STEP 5</text>
 <text x="1400" y="206" fill="#f3f4f6" font-size="20" font-weight="700">Serve</text>
-<text x="1400" y="250" fill="#76B900" font-size="30" font-weight="800">vLLM + RAG</text>
-<text x="1400" y="280" fill="#9aa3af" font-size="14">merged checkpoint → vLLM 26.02</text>
-<text x="1400" y="301" fill="#9aa3af" font-size="14">Nemotron-3-Embed-1B (2048-d) + BM25</text>
-<text x="1400" y="322" fill="#9aa3af" font-size="14">reciprocal-rank fusion, [n] citations</text>
-<text x="1400" y="343" fill="#9aa3af" font-size="14">FastAPI · SSE · systemd on :8600</text>
+<text x="1400" y="250" fill="#76B900" font-size="30" font-weight="800">2 Nemotrons + RAG</text>
+<text x="1400" y="280" fill="#9aa3af" font-size="14">expert: Nemotron-3-Super 120B (Ollama)</text>
+<text x="1400" y="301" fill="#9aa3af" font-size="14">fast: fine-tuned Nano-4B (GGUF/Ollama)</text>
+<text x="1400" y="322" fill="#9aa3af" font-size="14">Embed-1B (2048-d) + BM25 + quality prior</text>
+<text x="1400" y="343" fill="#9aa3af" font-size="14">cited 6-section briefings · :8600</text>
 <rect x="60" y="450" width="800" height="330" rx="14" fill="#1b1f27" stroke="#2a3040"/>
 <text x="84" y="490" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">PLATFORM</text>
 <text x="84" y="522" fill="#f3f4f6" font-size="22" font-weight="700">NVIDIA DGX Spark — single box, no cloud</text>
@@ -61,7 +61,7 @@
 <circle cx="92" cy="617" r="4" fill="#76B900"/>
 <text x="108" y="622" fill="#9aa3af" font-size="16">Training: nvcr.io/nvidia/nemo-automodel:26.08 (official Spark playbook)</text>
 <circle cx="92" cy="651" r="4" fill="#76B900"/>
-<text x="108" y="656" fill="#9aa3af" font-size="16">Serving: nvcr.io/nvidia/vllm:26.02-py3, mamba cache fp32, reasoning toggle</text>
+<text x="108" y="656" fill="#9aa3af" font-size="16">Serving: Ollama (Super Q4_K_M ~91 GB resident, Nano GGUF on demand); vLLM optional</text>
 <circle cx="92" cy="685" r="4" fill="#76B900"/>
 <text x="108" y="690" fill="#9aa3af" font-size="16">Open models only: Nemotron-3 Nano 4B · Super 120B-A12B · Embed 1B</text>
 <circle cx="92" cy="719" r="4" fill="#76B900"/>

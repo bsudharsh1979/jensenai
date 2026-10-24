@@ -1,9 +1,21 @@
-# Ollama Modelfile for the merged, fine-tuned model (GGUF produced by llama.cpp convert_hf_to_gguf.py)
-#   python ~/llama.cpp/convert_hf_to_gguf.py models/nemotron-nano-4b-jensen-merged --outtype bf16 \
-#          --outfile models/gguf/nemotron-nano-4b-jensen-bf16.gguf
-#   ollama create nemotron-nano-4b-jensen -f deploy/Modelfile
+# Ollama Modelfile for the LoRA fine-tuned Nemotron-3-Nano-4B (GGUF from scripts/06b_export_gguf.py)
+#   scripts/06b_export_gguf.py            # -> models/gguf/nemotron-nano-4b-jensen-bf16.gguf (architecture nemotron_h)
+#   cd deploy && ollama create nemotron-nano-4b-jensen -f Modelfile
 FROM ../models/gguf/nemotron-nano-4b-jensen-bf16.gguf
-PARAMETER temperature 0.6
+
+# Nemotron 3 Nano chat format (ChatML) in non-thinking mode: the assistant turn is primed with an empty
+# <think></think> block, exactly as the HF chat_template renders with enable_thinking=false.
+TEMPLATE """{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{- range .Messages }}{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+<think></think>{{ .Content }}<|im_end|>
+{{ end }}{{- end }}<|im_start|>assistant
+<think></think>"""
+PARAMETER stop <|im_end|>
+PARAMETER stop <|im_start|>
+PARAMETER temperature 0.2
 PARAMETER top_p 0.95
 PARAMETER num_ctx 16384
 SYSTEM """You are NVIDIA Insight, an assistant that answers questions about NVIDIA and its CEO Jensen Huang, grounded in his speeches, keynotes, earnings calls and interviews from the last six months. Answer precisely, cite the event and date when relevant, and say so if something is not covered."""
