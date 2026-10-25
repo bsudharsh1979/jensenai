@@ -23,11 +23,12 @@
   .msg.bot { background:var(--panel); border:1px solid var(--border); }
   .msg .role { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:6px; }
   .msg.bot .role { color:var(--green); }
-  .cite { color:var(--green); font-weight:600; }
-  .msg.bot .body { white-space:normal; }
-  .msg.bot .body h3 { font-size:12px; text-transform:uppercase; letter-spacing:1.2px; color:var(--green); margin:16px 0 4px; padding-top:10px; border-top:1px solid var(--border); }
+  .cite { color:var(--green); font-weight:600; font-size:0.82em; vertical-align:super; margin-left:1px; }
+  .msg.bot .body { white-space:normal; line-height:1.65; font-size:14.5px; }
+  .msg.bot .body h3 { font-size:12px; text-transform:uppercase; letter-spacing:1.4px; color:var(--green); margin:26px 0 10px; padding-top:14px; border-top:1px solid var(--border); }
   .msg.bot .body h3:first-child { margin-top:4px; padding-top:0; border-top:0; }
-  .msg.bot .body p { margin:0 0 10px; }
+  .msg.bot .body p { margin:0 0 14px; max-width:78ch; }
+  .msg.bot .body p b:first-child { color:#fff; display:block; margin-bottom:2px; font-size:13.5px; letter-spacing:0.2px; }
   form { display:flex; gap:10px; padding:14px 22px; border-top:1px solid var(--border); background:var(--panel); }
   input[type=text] { flex:1; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:15px; }
   button { padding:12px 18px; border-radius:8px; border:none; background:var(--green); color:#07100a; font-weight:700; cursor:pointer; }
@@ -48,7 +49,19 @@
   .thinking { color:var(--muted); font-size:13px; font-style:italic; }
   .footnote { color:var(--muted); font-size:11px; margin-top:10px; border-top:1px solid var(--border); padding-top:6px; }
   select { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:13px; }
+  .msg.bot .body pre { background:#0a0e0b; border:1px solid var(--border); border-radius:8px; padding:10px 12px; overflow-x:auto; font-size:12.5px; line-height:1.45; }
+  .msg.bot .body pre code { color:#d7e3d7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .msg.bot .body .diagram { background:#0a0e0b; border:1px solid var(--border); border-radius:8px; padding:10px; margin:8px 0; overflow-x:auto; }
+  .msg.bot .body .diagram svg { max-width:100%; height:auto; }
+  .codelabel { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin:8px 0 -4px; }
+  .actions { display:flex; gap:8px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--border); flex-wrap:wrap; }
+  .actions button { padding:6px 10px; font-size:12px; font-weight:600; background:#1a2a1c; color:var(--text); border:1px solid #27402a; }
+  .actions button.primary { background:var(--green); color:#07100a; border-color:var(--green); }
+  .actions button.sel { outline:2px solid var(--green); }
+  .actions input { flex:1; min-width:180px; padding:6px 8px; font-size:12px; border-radius:6px; border:1px solid var(--border); background:#0e130f; color:var(--text); }
+  .actions .thanks { font-size:12px; color:var(--green); }
 </style>
+<script src="/static/vendor/mermaid.min.js"></script>
 </head>
 <body>
 <header>
@@ -87,6 +100,7 @@ const EXAMPLES = [
   "Why does Jensen say AI is a manufacturing industry, not software?",
   "What is Vera Rubin and when is it in production?",
   "What did Jensen say about agentic AI at Computex / GTC Taipei 2026?",
+  "Explain the Vera Rubin NVL72 architecture and how a developer would run inference on it",
   "What did Jensen Huang say about DGX Spark?"
 ];
 const ex = document.getElementById('examples');
@@ -97,11 +111,23 @@ function add(role, text) {
   d.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'NVIDIA Insight'}</div><div class="body"></div>`;
   d.querySelector('.body').textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d.querySelector('.body');
 }
-function render(el, text) {
-  // minimal markdown: ### headings, **bold**, blank-line paragraphs, [n] citations
+if (window.mermaid) mermaid.initialize({ startOnLoad:false, theme:'dark', securityLevel:'loose', themeVariables:{ primaryColor:'#1f3a22', primaryTextColor:'#e6ede6', primaryBorderColor:'#76b900', lineColor:'#76b900', secondaryColor:'#121814', tertiaryColor:'#0e130f', fontFamily:'Segoe UI, Helvetica, Arial' } });
+let mermaidSeq = 0;
+function renderMarkdown(text) {
+  // minimal markdown: ### headings, **bold**, blank-line paragraphs, [n] citations, ``` fenced code / mermaid
   const esc = t => t.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
-  const html = text.split(/\n{2,}|\n(?=#{2,3} )/).map(block => {
+  const segs = text.split(/(```[\s\S]*?(?:```|$))/);          // fenced blocks (possibly still streaming) vs. prose
+  return segs.map(seg => {
+    if (seg.startsWith('```')) {
+      const m = seg.match(/^```([\w-]*)\n?([\s\S]*?)(?:```)?$/); const lang = (m && m[1] || '').toLowerCase(); const code = m ? m[2] : '';
+      const closed = seg.endsWith('```');
+      if (lang === 'mermaid') return closed ? `<div class="codelabel">Architecture diagram</div><div class="diagram" data-mermaid="${esc(code).replace(/"/g,'&quot;')}">${esc(code)}</div>` : `<div class="codelabel">Architecture diagram (rendering…)</div><pre><code>${esc(code)}</code></pre>`;
+      return `<div class="codelabel">${lang ? esc(lang) : 'code'}</div><pre><code>${esc(code)}</code></pre>`;
+    }
+    return renderProse(seg);
+  }).join('');
+  function renderProse(txt) { return txt.split(/\n{2,}|\n(?=#{2,3} )/).map(block => {
     const b = block.trim(); if (!b) return '';
     if (/^#{2,3}\s/.test(b)) {
       const [first, ...rest] = b.split('\n');
@@ -111,8 +137,40 @@ function render(el, text) {
       return `<h3>${inline(head)}</h3>` + (bodyTxt ? `<p>${inline(bodyTxt)}</p>` : '');
     }
     return `<p>${inline(b.replace(/\n/g, ' '))}</p>`;
-  }).join('');
-  el.innerHTML = html; log.scrollTop = log.scrollHeight;
+  }).join(''); }
+}
+function render(el, text) {
+  el.innerHTML = renderMarkdown(text); log.scrollTop = log.scrollHeight;
+}
+async function renderDiagrams(el) {
+  if (!window.mermaid) return;
+  for (const d of el.querySelectorAll('.diagram[data-mermaid]')) {
+    const code = d.getAttribute('data-mermaid').replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+    try { const { svg } = await mermaid.render('mmd' + (++mermaidSeq), code); d.innerHTML = svg; }
+    catch (e) { d.innerHTML = '<pre><code>' + d.textContent + '</code></pre><div class="codelabel">diagram could not be rendered</div>'; }
+    d.removeAttribute('data-mermaid');
+  }
+}
+function addActions(body, ctx) {
+  const bar = document.createElement('div'); bar.className = 'actions';
+  bar.innerHTML = `<button class="good" title="Good answer">👍 Good</button><button class="bad" title="Bad answer">👎 Bad</button><input class="comment" placeholder="Optional: what was wrong / what was good?"><button class="send-fb">Send feedback</button><button class="primary pdf">Export PDF</button><span class="thanks"></span>`;
+  body.parentElement.appendChild(bar);
+  let rating = null;
+  bar.querySelector('.good').onclick = () => { rating='good'; bar.querySelector('.good').classList.add('sel'); bar.querySelector('.bad').classList.remove('sel'); };
+  bar.querySelector('.bad').onclick  = () => { rating='bad';  bar.querySelector('.bad').classList.add('sel');  bar.querySelector('.good').classList.remove('sel'); };
+  bar.querySelector('.send-fb').onclick = async () => {
+    if (!rating) { bar.querySelector('.thanks').textContent = 'Pick 👍 or 👎 first'; return; }
+    const r = await fetch('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question: ctx.question, answer: ctx.answer, rating, comment: bar.querySelector('.comment').value, mode: ctx.mode, model: ctx.model, cited_chunk_ids: ctx.sources.filter((s,i)=>ctx.cited.includes(i+1)).map(s=>s.chunk_id), sources: ctx.sources.map(s=>({title:s.title,url:s.url,date:s.date}))})});
+    const j = await r.json(); bar.querySelector('.thanks').textContent = j.ok ? `Thanks — recorded (${j.stats.good} good / ${j.stats.bad} bad so far). Similar future questions will use this.` : 'Could not save feedback';
+  };
+  bar.querySelector('.pdf').onclick = async () => {
+    bar.querySelector('.pdf').textContent = 'Building PDF…';
+    const svgs = [...body.querySelectorAll('.diagram svg')].map(s => s.outerHTML);
+    const r = await fetch('/api/pdf', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question: ctx.question, answer: ctx.answer, sources: ctx.sources, cited: ctx.cited, mode: ctx.mode, model: ctx.model, diagrams_svg: svgs})});
+    if (!r.ok) { bar.querySelector('.pdf').textContent = 'PDF failed'; return; }
+    const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (r.headers.get('Content-Disposition')||'').match(/filename="(.+)"/)?.[1] || 'nvidia-insight-briefing.pdf'; a.click();
+    bar.querySelector('.pdf').textContent = 'Export PDF';
+  };
 }
 let lastSources = [];
 function showSources(s, cited) {
@@ -139,8 +197,8 @@ form.addEventListener('submit', async e => {
         if (ev.type==='sources') showSources(ev.sources);
         else if (ev.type==='status') setStatus(ev.text);
         else if (ev.type==='token') { answer += ev.content; render(body, answer); }
-        else if (ev.type==='final') { answer = ev.content; render(body, answer); }
-        else if (ev.type==='cited') { showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); }
+        else if (ev.type==='final') { answer = ev.content; render(body, answer); await renderDiagrams(body); }
+        else if (ev.type==='cited') { showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); addActions(body, {question: text, answer, sources: lastSources, cited: ev.ids, mode: ev.mode, model: ev.model}); }
         else if (ev.type==='error') { answer += '\n⚠ ' + ev.error; render(body, answer); } }
     }
   } catch (err) { render(body, (answer||'') + '\n⚠ ' + err); }

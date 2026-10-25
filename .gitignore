@@ -22,3 +22,5 @@ logs/
 !data/sft/val.jsonl
 !data/index/meta.json
 !eval/summary.json
+data/feedback/feedback.jsonl
+data/sft/dpo.jsonl

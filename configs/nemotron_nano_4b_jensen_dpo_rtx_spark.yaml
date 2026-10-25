@@ -1,0 +1,49 @@
+# NeMo AutoModel DPO recipe for the fast model (derived from the LoRA SFT recipe in this repo).
+# Run inside nvcr.io/nvidia/nemo-automodel:26.08:  automodel finetune llm -c configs/nemotron_nano_4b_jensen_dpo_rtx_spark.yaml
+step_scheduler:
+  num_epochs: 2
+  ckpt_every_steps: 50
+  val_every_steps: 25
+  global_batch_size: 8
+  local_batch_size: 1
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: /work/models/nemotron-nano-4b-jensen-merged   # SFT merge = policy init
+  torch_dtype: bfloat16
+  trust_remote_code: true
+
+peft:
+  peft_fn: nemo_automodel.components._peft.lora.PeftConfig
+  match_all_linear: true
+  exclude_modules: ["*.out_proj"]
+  dim: 16
+  alpha: 32
+  dropout: 0.05
+
+loss_fn:
+  _target_: nemo_automodel.components.loss.dpo.DPOLoss   # sigmoid DPO, beta 0.1
+  beta: 0.1
+
+dataset:
+  _target_: nemo_automodel.components.datasets.llm.preference_dataset.PreferenceDataset
+  path_or_dataset: /work/data/sft/dpo.jsonl
+  prompt_key: prompt
+  chosen_key: chosen
+  rejected_key: rejected
+  seq_length: 4096
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 5.0e-6
+  weight_decay: 0.0
+
+distributed:
+  _target_: nemo_automodel.components.distributed.fsdp2.FSDP2Manager
+  dp_size: 1
+  tp_size: 1
+
+checkpoint:
+  enabled: true
+  checkpoint_dir: /work/runs/dpo
+  save_consolidated: true

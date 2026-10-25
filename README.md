@@ -32,7 +32,11 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 * **Hybrid RAG with guaranteed citations** — Nemotron-3-Embed-1B dense retrieval fused with BM25 and a *source-quality prior* (verbatim transcripts and NVIDIA publications outrank live-stream chatter and reaction videos). After generation, any sentence the model left uncited is attributed to the best-matching passage with the same embedding model, and the sources panel shows which passages were actually cited.
 * **Runs 100% on DGX Spark** — teacher, training, embeddings, inference and web app on one GB10 box; nothing leaves the machine.
 * **Structured analyst briefings** — every answer is written in paragraphs under six fixed sections: *Summary · Technical view · Business view · Real-world use cases · Who is already using it · Insights*, so one question yields the engineering facts, the commercial meaning, concrete deployment scenarios, named adopters (only those the sources name, each cited) and non-obvious takeaways. `structured: false` in the API request returns a short direct answer instead.
-* **Streaming web chat UI** — token-by-token SSE answers rendered with section headings, sources panel, RAG on/off toggle, example questions.
+* **Streaming web chat UI** — token-by-token SSE answers rendered with section headings, bold sub-topic lead-ins, sources panel, RAG on/off toggle, example questions.
+* **Architecture diagrams and NVIDIA code — only when relevant** — for questions about a system, chip, stack or developer workflow (Vera Rubin NVL72, Dynamo, DGX Spark, Cosmos…) the briefing adds an *Architecture & code* section: a Mermaid architecture/data-flow diagram built from what the sources describe, plus a short example using the fitting NVIDIA library (TensorRT-LLM, Dynamo, NIM, NeMo AutoModel, cuDF/RAPIDS, Isaac Sim, Cosmos, CUDA Python, OpenUSD) taken from a catalog of verified snippets (`app/nvidia_snippets.py`). Financial, strategic and event-summary questions never get it.
+* **Export to PDF** — one click under any answer produces an A4 briefing (question, sections, rendered diagrams, code, numbered sources with URLs, model/time footer) via WeasyPrint (`POST /api/pdf`).
+* **Reinforcement layer (good / bad feedback)** — 👍/👎 plus an optional comment per answer (`POST /api/feedback` → `data/feedback/feedback.jsonl`). Online, ratings on semantically similar questions (cos ≥ 0.80) shape the next answer: a good answer becomes a depth/structure exemplar, bad-answer comments become explicit "avoid" rules, and passages cited in bad answers are down-weighted in retrieval. Offline, `scripts/10_build_preference_data.py` turns good/bad pairs into DPO data for NeMo AutoModel to re-tune the fast model.
+* **Readable by design** — short paragraphs under each heading, each sub-topic with a bold lead-in, at most two citations per paragraph; a post-processing pass (`_tidy`) collapses citation stacks and normalises spacing, and uncited paragraphs receive one embedding-attributed citation rather than one per sentence.
 
 **Main benefits**
 
@@ -48,7 +52,19 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 * **JSON endpoint** `/api/answer` and SSE endpoint `/api/chat` on `:8600`; optional OpenAI-compatible vLLM serving of the fine-tuned model (`deploy/vllm_serve.sh`, `jensen-vllm.service`) when Super is not in use.
 * **Systemd service** — `jensen-insight` starts with the Spark (Ollama must be running).
 * **Built-in evaluation** — base vs fine-tuned token-F1, ROUGE-L and Nemotron-3-Super LLM-as-judge on a held-out split.
-* **Alternative Ollama/GGUF path** and an **auto-generated pipeline infographic** rendered from the measured artefacts.
+* **Alternative Ollama/GGUF path** and **auto-generated infographics** (pipeline and technical architecture) rendered from the measured artefacts.
+
+## Technical architecture (infographic)
+
+![Technical architecture: fine-tuning method, RAG type, answer pipeline, serving stack, reinforcement layer](docs/img/tech_architecture_infographic.png)
+
+**Fine-tuning method.** Parameter-efficient LoRA SFT (r=16, α=32, dropout 0.05; 19.2M trainable parameters = 0.48 %) on `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16`, a dense hybrid Mamba-2/Transformer, using the NeMo AutoModel 26.08 container and NVIDIA's DGX Spark recipe (AdamW 1e-4 cosine, bf16, FSDP2, 3 epochs / 249 steps, 6.5 min). Training data is 719 grounded Q&A pairs synthesised by Nemotron-3-Super from the curated corpus (3 per passage). The adapter is merged with a pure-tensor update (W' = W + (α/r)·B·A) so the Mamba `dt_bias`/`out_proj` tensors are never re-initialised, then exported to GGUF with raw-config hparams and served by Ollama with an explicit ChatML template. Held-out result: token-F1 0.313 → 0.380, ROUGE-L 0.207 → 0.273, Super-as-judge 1.42 → 1.91 / 5, wins 47 / 57.
+
+**RAG type.** Hybrid retrieval: dense `Nemotron-3-Embed-1B` (2048-d cosine) over 2,389 passages plus BM25 over title + date + text, fused with reciprocal-rank fusion (k=60), multiplied by a source-quality prior (transcripts, earnings calls and NVIDIA publications up; live-stream reactions and commentary down), with a per-document cap for diversity. Follow-up questions are detected and retrieved with the previous question merged in; a citation guarantee attributes any uncited paragraph to its best-matching passage; and passages cited in answers the user rated bad are down-weighted (×0.7) for similar questions.
+
+**Answer pipeline.** Question + compact notes of prior turns → retrieval → prompt (analyst rules, 8 numbered sources, six-section format, optional architecture/code section with the snippet catalog) → generation by Nemotron-3-Super (expert) or the fine-tuned Nano-4B (fast) → tidy & attribute (≤ 2 citations per paragraph, lead-ins, fences preserved) → render (headings, Mermaid, code, PDF). A per-request nonce defeats Ollama's prefix cache and conversation *notes* instead of verbatim history stop answer recycling.
+
+**Serving stack.** One GB10 GPU hosts both Nemotrons through Ollama (Super Q4_K_M ~91 GB resident, Nano GGUF swapped in on demand with app-level eviction), the embedding model and BM25 in-process, and a FastAPI/SSE app on `:8600` run as a systemd user service; WeasyPrint renders PDFs server-side.
 
 ## Architecture and methods
 
@@ -88,13 +104,16 @@ scripts/
   07_eval.py              # base vs tuned: F1 / ROUGE-L / LLM judge
   08_build_index.py       # Nemotron-3-Embed-1B + BM25 index -> data/index
   09_render_infographic.py# pipeline infographic (SVG/PNG) from the measured artefacts
+  10_build_preference_data.py # good/bad feedback -> DPO pairs (data/sft/dpo.jsonl) + NeMo AutoModel DPO config
+  11_render_tech_infographic.py # technical-architecture infographic
 app/
-  server.py  retriever.py  llm.py  static/index.html
+  server.py  retriever.py  llm.py  feedback.py  nvidia_snippets.py  static/index.html  static/vendor/mermaid.min.js
 deploy/
   vllm_serve.sh  run_app.sh  Modelfile  systemd/jensen-vllm.service  systemd/jensen-insight.service
 data/   curated/stats.json, sft/train.jsonl, sft/val.jsonl, index/meta.json (large artefacts are git-ignored)
 eval/   summary.json
-docs/   EXECUTIVE_SUMMARY.md, img/app_infographic.jpg, img/pipeline_infographic.{svg,png}
+data/feedback/feedback.jsonl  # human ratings (reinforcement layer)
+docs/   EXECUTIVE_SUMMARY.md, img/app_infographic.jpg, img/pipeline_infographic.{svg,png}, img/tech_architecture_infographic.{svg,png}
 ```
 
 ## Quick start (DGX Spark)

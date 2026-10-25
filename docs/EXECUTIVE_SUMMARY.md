@@ -48,6 +48,15 @@ is used.
 | **5. Serve** | Ollama hosts Nemotron-3-Super (Expert) and the fine-tuned Nano-4B GGUF (Fast); hybrid retrieval with Nemotron-3-Embed-1B (2048-d) + BM25 + a source-quality prior that favours verbatim transcripts; six-section briefings with guaranteed citations (uncited sentences are attributed by embedding similarity); FastAPI with streaming SSE and a web UI; systemd unit for boot-time start | Web app at `http://<dgx-spark>:8600`, API at `/api/answer` |
 | **6. Evaluate** | Base vs fine-tuned on held-out questions: token-F1, ROUGE-L, and Nemotron-3-Super as LLM judge (1–5) | Fine-tuned beats base on all metrics: F1 0.380 vs 0.313 (+21%), ROUGE-L 0.273 vs 0.207 (+32%), judge 1.91 vs 1.42 (+35%); wins 47 of 57 questions |
 
+## Technical architecture
+
+![Technical architecture infographic](img/tech_architecture_infographic.png)
+
+* **Fine-tuning method** — LoRA SFT (r16/α32, 0.48 % of weights) on Nemotron-3-Nano-4B with NeMo AutoModel on the Spark itself, trained on 719 Q&A pairs distilled by Nemotron-3-Super; pure-tensor merge, GGUF export, served by Ollama. Held-out gains: +21 % F1, +32 % ROUGE-L, +35 % judge score.
+* **RAG type** — hybrid dense (Nemotron-3-Embed-1B) + BM25 with reciprocal-rank fusion, a source-quality prior, per-document caps, follow-up-aware retrieval, a citation guarantee and feedback-based down-weighting.
+* **Readable, exportable briefings** — six sections with bold sub-topic lead-ins and at most two citations per paragraph; technical questions add an architecture diagram (Mermaid) and a verified NVIDIA-library code example; every answer exports to an A4 PDF.
+* **Reinforcement layer** — good/bad ratings with comments feed the next similar answer (exemplars, avoid-rules, retrieval weights) and accumulate into DPO preference data for re-tuning the fast model.
+
 ## Key design decisions
 
 1. **Nemotron-3-Nano-4B over larger Nemotron variants.** Dense 4B hybrid Mamba-2/Transformer; NVIDIA lists DGX Spark

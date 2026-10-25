@@ -30,3 +30,4 @@ gguf
 sentencepiece
 protobuf
 cairosvg
+weasyprint>=60

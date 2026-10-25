@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1460" viewBox="0 0 1720 1460" font-family="Inter, Helvetica, Arial, sans-serif">
+<rect width="1720" height="1460" fill="#0f1115"/>
+<text x="60" y="68" fill="#f3f4f6" font-size="38" font-weight="800">JensenAI <tspan fill="#76B900">·</tspan> technical architecture</text>
+<text x="60" y="100" fill="#9aa3af" font-size="17">Fine-tuning method, retrieval design, serving stack, answer pipeline and the human-feedback loop — all running on one NVIDIA DGX Spark (GB10, 128 GB unified memory).</text>
+<rect x="60" y="130" width="800" height="430" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="60" y="130" width="6" height="430" rx="3" fill="#76B900"/>
+<text x="82" y="162" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">FINE-TUNING METHOD</text>
+<text x="82" y="190" fill="#f3f4f6" font-size="21" font-weight="700">Parameter-efficient LoRA SFT with NeMo AutoModel</text>
+<text x="84" y="242" fill="#76B900" font-size="26" font-weight="800">19.2M / 0.48%</text>
+<text x="84" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">TRAINABLE PARAMS</text>
+<text x="330" y="242" fill="#76B900" font-size="26" font-weight="800">r16 · α32 · 0.05</text>
+<text x="330" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">RANK · ALPHA · DROPOUT</text>
+<text x="600" y="242" fill="#76B900" font-size="26" font-weight="800">6.5 min</text>
+<text x="600" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">TRAIN TIME (GB10)</text>
+<circle cx="92" cy="297" r="3.5" fill="#76B900"/>
+<text x="106" y="302" fill="#9aa3af" font-size="13.5">Student: Nemotron-3-Nano-4B-BF16 — dense hybrid Mamba-2 + Transformer (nemotron_h)</text>
+<circle cx="92" cy="324" r="3.5" fill="#76B900"/>
+<text x="106" y="329" fill="#9aa3af" font-size="13.5">Data: 719 grounded Q&amp;A pairs synthesised by Nemotron-3-Super (3 per passage)</text>
+<circle cx="92" cy="351" r="3.5" fill="#76B900"/>
+<text x="106" y="356" fill="#9aa3af" font-size="13.5">Recipe: NeMo AutoModel 26.08 · LoRA on attention + MLP, *.out_proj excluded (Mamba frozen)</text>
+<circle cx="92" cy="378" r="3.5" fill="#76B900"/>
+<text x="106" y="383" fill="#9aa3af" font-size="13.5">Optimiser: AdamW 1e-4 cosine · bf16 · FSDP2 · 3 epochs / 249 steps · lowest-val-loss checkpoint</text>
+<circle cx="92" cy="405" r="3.5" fill="#76B900"/>
+<text x="106" y="410" fill="#9aa3af" font-size="13.5">Loss: train 2.50 → 1.06 · val 2.01 → 1.72 (held-out set of 57 questions)</text>
+<circle cx="92" cy="432" r="3.5" fill="#76B900"/>
+<text x="106" y="437" fill="#9aa3af" font-size="13.5">Merge: pure-tensor W' = W + (α/r)·B·A — Mamba dt_bias / out_proj never re-initialised</text>
+<circle cx="92" cy="459" r="3.5" fill="#76B900"/>
+<text x="106" y="464" fill="#9aa3af" font-size="13.5">Export: llama.cpp GGUF bf16 (raw-config hparams) → Ollama Modelfile, explicit ChatML template</text>
+<text x="84" y="500" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">HELD-OUT RESULT · BASE → FINE-TUNED</text>
+<text x="84" y="530" fill="#f3f4f6" font-size="16">Token F1 0.313 → <tspan fill="#76B900" font-weight="700">0.380</tspan>   ·   ROUGE-L 0.207 → <tspan fill="#76B900" font-weight="700">0.273</tspan>   ·   Super-as-judge 1.42 → <tspan fill="#76B900" font-weight="700">1.91</tspan> / 5   ·   wins 47 / 57</text>
+<rect x="890" y="130" width="770" height="430" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="890" y="130" width="6" height="430" rx="3" fill="#4fb3ff"/>
+<text x="912" y="162" fill="#4fb3ff" font-size="13" font-weight="700" letter-spacing="2">RAG TYPE</text>
+<text x="912" y="190" fill="#f3f4f6" font-size="21" font-weight="700">Hybrid dense + lexical retrieval with quality priors</text>
+<text x="914" y="242" fill="#4fb3ff" font-size="26" font-weight="800">2,389</text>
+<text x="914" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">INDEXED CHUNKS</text>
+<text x="1130" y="242" fill="#4fb3ff" font-size="26" font-weight="800">173</text>
+<text x="1130" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">DOCUMENTS</text>
+<text x="1320" y="242" fill="#4fb3ff" font-size="26" font-weight="800">2048</text>
+<text x="1320" y="262" fill="#9aa3af" font-size="12.5" letter-spacing="1">EMBEDDING DIMS</text>
+<circle cx="922" cy="297" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="302" fill="#9aa3af" font-size="13.5">Dense: Nemotron-3-Embed-1B (2048-d cosine) over 350-word passages with title + date</text>
+<circle cx="922" cy="324" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="329" fill="#9aa3af" font-size="13.5">Lexical: BM25 over title + date + text, so event names in video titles are matchable</text>
+<circle cx="922" cy="351" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="356" fill="#9aa3af" font-size="13.5">Fusion: Reciprocal Rank Fusion (k=60) × source-quality prior (transcripts ↑, reaction streams ↓)</text>
+<circle cx="922" cy="378" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="383" fill="#9aa3af" font-size="13.5">Diversity: per-document cap (3 for high-quality docs, 1 otherwise), 60 candidates → top 8</text>
+<circle cx="922" cy="405" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="410" fill="#9aa3af" font-size="13.5">Conversation-aware: follow-ups retrieved with the previous question merged in</text>
+<circle cx="922" cy="432" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="437" fill="#9aa3af" font-size="13.5">Citation guarantee: uncited paragraphs get one embedding-attributed [n] (cos ≥ 0.38)</text>
+<circle cx="922" cy="459" r="3.5" fill="#4fb3ff"/>
+<text x="936" y="464" fill="#9aa3af" font-size="13.5">Feedback-weighted: passages cited in 'bad' answers down-weighted ×0.7 for similar questions</text>
+<rect x="60" y="590" width="1600" height="300" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="60" y="590" width="6" height="300" rx="3" fill="#ffb347"/>
+<text x="82" y="622" fill="#ffb347" font-size="13" font-weight="700" letter-spacing="2">ANSWER PIPELINE</text>
+<text x="82" y="650" fill="#f3f4f6" font-size="21" font-weight="700">From question to cited, structured, exportable briefing</text>
+<rect x="90" y="700" width="170" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="175.0" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Question</text>
+<text x="175.0" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">+ notes of prior turns</text>
+<line x1="262" y1="731" x2="282.0" y2="731.0" stroke="#ffb347" stroke-width="2.2"/>
+<polygon points="292,731 282.0,725.0 282.0,737.0" fill="#ffb347"/>
+<rect x="294" y="700" width="215" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="401.5" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Retrieve</text>
+<text x="401.5" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">hybrid RRF · quality · feedback</text>
+<line x1="511" y1="731" x2="531.0" y2="731.0" stroke="#ffb347" stroke-width="2.2"/>
+<polygon points="541,731 531.0,725.0 531.0,737.0" fill="#ffb347"/>
+<rect x="543" y="700" width="190" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="638.0" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Prompt</text>
+<text x="638.0" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">rules · 8 sources · format</text>
+<line x1="735" y1="731" x2="755.0" y2="731.0" stroke="#ffb347" stroke-width="2.2"/>
+<polygon points="765,731 755.0,725.0 755.0,737.0" fill="#ffb347"/>
+<rect x="767" y="700" width="290" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="912.0" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Generate</text>
+<text x="912.0" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">Super 120B (expert) · Nano-4B LoRA (fast)</text>
+<line x1="1059" y1="731" x2="1079.0" y2="731.0" stroke="#ffb347" stroke-width="2.2"/>
+<polygon points="1089,731 1079.0,725.0 1079.0,737.0" fill="#ffb347"/>
+<rect x="1091" y="700" width="230" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="1206.0" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Tidy &amp; attribute</text>
+<text x="1206.0" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">≤2 cites / paragraph · lead-ins</text>
+<line x1="1323" y1="731" x2="1343.0" y2="731.0" stroke="#ffb347" stroke-width="2.2"/>
+<polygon points="1353,731 1343.0,725.0 1343.0,737.0" fill="#ffb347"/>
+<rect x="1355" y="700" width="215" height="62" rx="8" fill="#232a36" stroke="#ffb347" stroke-width="1.5"/>
+<text x="1462.5" y="731.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Render</text>
+<text x="1462.5" y="748.0" text-anchor="middle" fill="#9aa3af" font-size="11">sections · Mermaid · code · PDF</text>
+<circle cx="92" cy="805" r="3.5" fill="#ffb347"/>
+<text x="106" y="810" fill="#9aa3af" font-size="13.5">Streaming SSE: status → sources → tokens → final (tidied text) → cited ids → done</text>
+<circle cx="92" cy="831" r="3.5" fill="#ffb347"/>
+<text x="106" y="836" fill="#9aa3af" font-size="13.5">Architecture &amp; code only for system / stack questions: Mermaid diagram + verified NVIDIA snippet (TensorRT-LLM, Dynamo, NIM, NeMo, cuDF, Isaac, CUDA Python, OpenUSD)</text>
+<circle cx="92" cy="857" r="3.5" fill="#ffb347"/>
+<text x="106" y="862" fill="#9aa3af" font-size="13.5">Per-request nonce vs Ollama prefix cache · conversation notes, not verbatim history · repeat_penalty 1.05</text>
+<rect x="60" y="920" width="800" height="420" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="60" y="920" width="6" height="420" rx="3" fill="#76B900"/>
+<text x="82" y="952" fill="#76B900" font-size="13" font-weight="700" letter-spacing="2">SERVING STACK · DGX SPARK</text>
+<text x="82" y="980" fill="#f3f4f6" font-size="21" font-weight="700">Two Nemotrons on one GPU, swapped on demand</text>
+<rect x="90" y="1015" width="340" height="70" rx="8" fill="#232a36" stroke="#76B900" stroke-width="1.5"/>
+<text x="260.0" y="1050.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Expert · nemotron-3-super</text>
+<text x="260.0" y="1067.0" text-anchor="middle" fill="#9aa3af" font-size="11">120B MoE · Q4_K_M · ~91 GB · 32k ctx · ~20 tok/s</text>
+<rect x="460" y="1015" width="370" height="70" rx="8" fill="#232a36" stroke="#76B900" stroke-width="1.5"/>
+<text x="645.0" y="1050.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Fast · nemotron-nano-4b-jensen</text>
+<text x="645.0" y="1067.0" text-anchor="middle" fill="#9aa3af" font-size="11">LoRA merge · GGUF bf16 · 16k ctx · ~32 tok/s</text>
+<rect x="90" y="1110" width="340" height="56" rx="8" fill="#232a36" stroke="#76B900" stroke-width="1.5"/>
+<text x="260.0" y="1138.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Ollama runtime (:11434)</text>
+<text x="260.0" y="1155.0" text-anchor="middle" fill="#9aa3af" font-size="11">keep_alive 24h · app-level exclusive eviction</text>
+<rect x="460" y="1110" width="370" height="56" rx="8" fill="#232a36" stroke="#76B900" stroke-width="1.5"/>
+<text x="645.0" y="1138.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Nemotron-3-Embed-1B + BM25</text>
+<text x="645.0" y="1155.0" text-anchor="middle" fill="#9aa3af" font-size="11">sentence-transformers · rank_bm25 · in-process</text>
+<rect x="90" y="1190" width="740" height="56" rx="8" fill="#232a36" stroke="#76B900" stroke-width="1.5"/>
+<text x="460.0" y="1223.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">FastAPI :8600 · systemd · SSE · /api/chat /api/answer /api/feedback /api/pdf</text>
+<circle cx="92" cy="1277" r="3.5" fill="#76B900"/>
+<text x="106" y="1282" fill="#9aa3af" font-size="13.5">GB10 Grace Blackwell · 128 GB unified · CUDA 13 · aarch64 · no cloud · WeasyPrint PDFs server-side</text>
+<rect x="890" y="920" width="770" height="420" rx="14" fill="#1b1f27" stroke="#2a3040"/>
+<rect x="890" y="920" width="6" height="420" rx="3" fill="#ff6e9c"/>
+<text x="912" y="952" fill="#ff6e9c" font-size="13" font-weight="700" letter-spacing="2">REINFORCEMENT LAYER</text>
+<text x="912" y="980" fill="#f3f4f6" font-size="21" font-weight="700">Human good / bad ratings close the loop online and offline</text>
+<rect x="955" y="1042" width="170" height="56" rx="8" fill="#232a36" stroke="#ff6e9c" stroke-width="1.5"/>
+<text x="1040.0" y="1070.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Answer</text>
+<text x="1040.0" y="1087.0" text-anchor="middle" fill="#9aa3af" font-size="11">+ sources, mode, model</text>
+<rect x="1190" y="1042" width="170" height="56" rx="8" fill="#232a36" stroke="#ff6e9c" stroke-width="1.5"/>
+<text x="1275.0" y="1070.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Good / Bad + comment</text>
+<text x="1275.0" y="1087.0" text-anchor="middle" fill="#9aa3af" font-size="11">POST /api/feedback</text>
+<rect x="1425" y="1042" width="200" height="56" rx="8" fill="#232a36" stroke="#ff6e9c" stroke-width="1.5"/>
+<text x="1525.0" y="1070.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">feedback.jsonl</text>
+<text x="1525.0" y="1087.0" text-anchor="middle" fill="#9aa3af" font-size="11">question · answer · rating · cited ids</text>
+<line x1="1127" y1="1070" x2="1178.0" y2="1070.0" stroke="#ff6e9c" stroke-width="2.2"/>
+<polygon points="1188,1070 1178.0,1064.0 1178.0,1076.0" fill="#ff6e9c"/>
+<line x1="1362" y1="1070" x2="1413.0" y2="1070.0" stroke="#ff6e9c" stroke-width="2.2"/>
+<polygon points="1423,1070 1413.0,1064.0 1413.0,1076.0" fill="#ff6e9c"/>
+<rect x="955" y="1140" width="300" height="56" rx="8" fill="#232a36" stroke="#ff6e9c" stroke-width="1.5"/>
+<text x="1105.0" y="1168.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Online: exemplars &amp; avoid-notes</text>
+<text x="1105.0" y="1185.0" text-anchor="middle" fill="#9aa3af" font-size="11">similar question (cos ≥ 0.80) → prompt</text>
+<rect x="1295" y="1140" width="330" height="56" rx="8" fill="#232a36" stroke="#ff6e9c" stroke-width="1.5"/>
+<text x="1460.0" y="1168.0" text-anchor="middle" fill="#f3f4f6" font-size="13.5" font-weight="700">Offline: DPO preference pairs</text>
+<text x="1460.0" y="1185.0" text-anchor="middle" fill="#9aa3af" font-size="11">scripts/10 → dpo.jsonl → NeMo AutoModel</text>
+<line x1="1525" y1="1100" x2="1184.941577225111" y2="1136.9206287584166" stroke="#ff6e9c" stroke-width="2.2"/>
+<polygon points="1175,1138 1185.589199970061,1142.885575093483 1184.293954480161,1130.95568242335" fill="#ff6e9c"/>
+<line x1="1525" y1="1100" x2="1468.6329679411908" y2="1132.9530341266884" stroke="#ff6e9c" stroke-width="2.2"/>
+<polygon points="1460,1138 1471.6611474651777,1138.1328148914029 1465.604788417204,1127.773253361974" fill="#ff6e9c"/>
+<circle cx="922" cy="1230" r="3.5" fill="#ff6e9c"/>
+<text x="936" y="1235" fill="#9aa3af" font-size="13.5">Good answers to similar questions → exemplars; bad-answer comments → explicit 'avoid' rules</text>
+<circle cx="922" cy="1255" r="3.5" fill="#ff6e9c"/>
+<text x="936" y="1260" fill="#9aa3af" font-size="13.5">Sources cited in bad answers down-weighted in retrieval for that question family</text>
+<circle cx="922" cy="1280" r="3.5" fill="#ff6e9c"/>
+<text x="936" y="1285" fill="#9aa3af" font-size="13.5">Good/bad pairs per question → chosen/rejected DPO data to re-tune the fast model</text>
+<circle cx="922" cy="1305" r="3.5" fill="#ff6e9c"/>
+<text x="936" y="1310" fill="#9aa3af" font-size="13.5">Ratings recorded so far: 2</text>
+<text x="60" y="1436" fill="#5b6270" font-size="13">github.com/bsudharsh1979/jensenai · generated by scripts/11_render_tech_infographic.py from the pipeline artefacts</text>
+</svg>

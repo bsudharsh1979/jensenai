@@ -23,6 +23,9 @@ def _tok(s: str) -> list[str]:
     return _TOKEN.findall(s.lower())
 
 
+CITE_RE = re.compile(r"\[(\d{1,2})\]")
+
+
 class Retriever:
     def __init__(self, index_dir: Path = INDEX, device: str | None = None):
         meta = json.loads((index_dir / "meta.json").read_text())
@@ -46,7 +49,7 @@ class Retriever:
         self.model.max_seq_length = 512
         self._quality = np.array([self._quality_prior(c) for c in self.chunks], dtype=np.float32)
 
-    def search(self, query: str, top_k: int = 10, candidates: int = 60) -> list[dict]:
+    def search(self, query: str, top_k: int = 10, candidates: int = 60, weights: dict[str, float] | None = None) -> list[dict]:
         q = self.model.encode_query([query], convert_to_numpy=True, normalize_embeddings=True)[0]
         dense = self.emb @ q
         dense_rank = np.argsort(-dense)[:candidates]
@@ -63,6 +66,8 @@ class Retriever:
         # outranks live-stream commentary, reaction videos and filler-heavy speech-to-text at equal relevance.
         for i in fused:
             fused[i] *= self._quality[i]
+            if weights:
+                fused[i] *= weights.get(self.chunks[i]["chunk_id"], 1.0)  # feedback layer: passages cited in bad answers
         order = sorted(fused, key=lambda i: -fused[i])
 
         out, per_doc = [], {}
@@ -103,40 +108,41 @@ class Retriever:
             q *= 0.7  # heavy "um / uh / you know": raw speech-to-text, often not Jensen
         return q
 
+    def embed_queries(self, texts: list[str]) -> np.ndarray:
+        return self.model.encode_query(texts, convert_to_numpy=True, normalize_embeddings=True)
+
     _SENT = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")
     _CITE = re.compile(r"\[\d{1,2}\]")
 
     def attribute(self, text: str, hits: list[dict], threshold: float = 0.38) -> tuple[str, list[int]]:
-        """Deterministic citation fallback. Any sentence the model left uncited is matched against the retrieved
-        passages with the same embedding model; if the best match is above ``threshold`` cosine similarity its
-        [n] is appended. Headings and short fragments are left alone. Returns (annotated text, cited ids)."""
+        """Guarantee citations without cluttering the text: paragraphs that carry no [n] get ONE citation (the
+        best-matching source by embedding similarity) appended at the end. Headings, bold-only lines and fenced
+        code / mermaid blocks are left untouched."""
         if not hits:
             return text, []
-        E = self.emb[[h["idx"] for h in hits]]
         lines = text.split("\n")
-        todo: list[tuple[int, int, str]] = []  # (line no, sentence no, sentence)
-        split: dict[int, list[str]] = {}
+        targets: list[int] = []
+        in_fence = False
         for li, line in enumerate(lines):
-            if not line.strip() or line.lstrip().startswith("#"):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
                 continue
-            sents = self._SENT.split(line.strip())
-            split[li] = sents
-            for si, sent in enumerate(sents):
-                if len(sent.split()) >= 6 and not self._CITE.search(sent):
-                    todo.append((li, si, sent))
-        if todo:
-            q = self.model.encode_query([t[2] for t in todo], convert_to_numpy=True, normalize_embeddings=True)
-            sims = q @ E.T
-            for (li, si, sent), row in zip(todo, sims):
-                best = int(row.argmax())
-                if row[best] >= threshold:
-                    tag = f" [{best + 1}]"
-                    split[li][si] = sent[:-1] + tag + sent[-1] if sent.endswith((".", "!", "?")) else sent + tag
-            for li, sents in split.items():
-                lines[li] = " ".join(sents)
-        out = "\n".join(lines)
-        cited = sorted({int(m) for m in re.findall(r"\[(\d{1,2})\]", out) if 1 <= int(m) <= len(hits)})
-        return out, cited
+            stripped = line.strip()
+            if in_fence or not stripped or stripped.startswith("#") or CITE_RE.search(stripped):
+                continue
+            if len(re.sub(r"\*\*.+?\*\*", "", stripped).split()) >= 8:
+                targets.append(li)
+        if targets:
+            q = self.model.encode_query([lines[i] for i in targets], convert_to_numpy=True, normalize_embeddings=True)
+            d = np.stack([self.emb[h["idx"]] for h in hits])
+            sims = q @ d.T
+            for row, li in enumerate(targets):
+                best = int(np.argmax(sims[row]))
+                if sims[row, best] >= threshold:
+                    lines[li] = lines[li].rstrip() + f" [{best + 1}]"
+        text = "\n".join(lines)
+        cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
+        return text, cited
 
     def stats(self) -> dict:
         docs = {}
