@@ -23,7 +23,9 @@ Rules:
 - "supported": every fact, number, name and date in the sentence appears in (or follows directly from) the cited sources. Paraphrase is fine.
 - "corrected": the sentence is partly right; give a rewritten sentence that keeps only what the sources say (keep its citation marks, keep it in the same style). Do not add new facts.
 - "remove": the sources do not support the sentence at all, or it contradicts them.
+- Attribution matters: if a sentence places a fact at a different event, city, date, period or speaker than the source does (e.g. the question asks about GTC Washington but the source describes GTC Berlin), the sentence is "corrected" so it names the real event/date — or "remove" if that leaves nothing that answers the question. Never let an answer imply that another event's announcements happened at the event the user asked about.
 - Sentences ending with "(inspiration)" are explicitly labelled extrapolations — mark them "supported".
+- A sentence that explicitly says the sources do not cover something is "supported".
 - Be precise but not pedantic: rounding (96.2B vs 96B) and obvious paraphrase are supported.
 
 Return ONLY a JSON object: {"claims": [{"id": <claim id>, "sentences": [{"i": <sentence index>, "verdict": "supported|corrected|remove", "text": "<rewritten sentence, only when corrected>"}]}]}
@@ -43,7 +45,8 @@ def _paragraphs(text: str) -> list[tuple[int, int, str]]:
     return out
 
 
-def build_judge_input(answer: str, hits: list[dict], max_src_chars: int = 2200) -> tuple[str, list[dict]]:
+def build_judge_input(answer: str, hits: list[dict], max_src_chars: int = 2200, question: str = "",
+                      missing: list[str] | None = None) -> tuple[str, list[dict]]:
     claims = []
     stop = re.search(r"^### Use-case inspiration\s*$", answer, re.M)  # labelled extrapolations are not fact-checked
     limit = stop.start() if stop else len(answer)
@@ -56,6 +59,11 @@ def build_judge_input(answer: str, hits: list[dict], max_src_chars: int = 2200) 
         sents = _SENT.split(para.strip())
         claims.append({"id": len(claims) + 1, "start": s, "end": e, "para": para, "sentences": sents, "src_ids": ids})
     parts = []
+    if question:
+        parts.append(f"The user asked: {question}")
+    if missing:
+        parts.append("None of the sources mention: " + ", ".join(missing) + ". Any sentence that attributes facts to "
+                     "these must be corrected to name the source's real event/date, or removed.")
     for c in claims:
         parts.append(f"### Claim {c['id']}")
         for i, snt in enumerate(c["sentences"]):

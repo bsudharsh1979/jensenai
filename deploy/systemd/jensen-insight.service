@@ -1,16 +1,22 @@
 # systemd *user* unit: NVIDIA Insight web app (FastAPI + RAG) on :8600.
-# Generators are served by Ollama (expert: Nemotron-3-Super, fast: fine-tuned Nemotron-Nano-4B GGUF).
-# Ollama must be running on :11434 (ollama serve). The optional jensen-vllm unit is NOT pulled in: on a
-# 128 GB DGX Spark, vLLM's reserved memory and Nemotron-3-Super (~93 GB) cannot coexist.
+# Expert generator: Nemotron-3-Super NVFP4 served by vLLM on :8001 (unit jensen-vllm-super — NVIDIA's Super-on-Spark
+# recipe with MTP speculative decoding). Fast generator: fine-tuned Nemotron-Nano-4B GGUF served by Ollama on :11434.
+# Fallback to Ollama for the expert model too: set EXPERT_BACKEND=ollama, EXPERT_BASE_URL=http://127.0.0.1:11434,
+# EXPERT_MODEL=nemotron-3-super:latest (and stop jensen-vllm-super first — the two copies do not fit together).
 [Unit]
 Description=NVIDIA Insight - Jensen Huang Q&A app (FastAPI + Nemotron RAG)
 After=network-online.target
+Wants=jensen-vllm-super.service
 
 [Service]
 Type=simple
 WorkingDirectory=%h/jensenai
 Environment=DEFAULT_MODE=expert
-Environment=EXPERT_MODEL=nemotron-3-super:latest
+Environment=EXPERT_BACKEND=vllm
+Environment=EXPERT_BASE_URL=http://127.0.0.1:8001/v1
+Environment=EXPERT_MODEL=nemotron-3-super
+Environment=FAST_BACKEND=ollama
+Environment=FAST_BASE_URL=http://127.0.0.1:11434
 Environment=FAST_MODEL=nemotron-nano-4b-jensen
 Environment=APP_PORT=8600
 ExecStart=%h/jensenai/deploy/run_app.sh

@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import llm
+from app import grounding, llm
 from app.feedback import FeedbackStore
 from app.nvidia_snippets import catalog as snippet_catalog, pick as pick_snippet
 from app.retriever import Retriever
@@ -33,6 +33,8 @@ from app import verify as verifier
 HERE = Path(__file__).resolve().parent
 STATE: dict = {}
 log = logging.getLogger("insight")
+# What the reader is told the evidence spans when the question names something the sources do not cover.
+CORPUS_SPAN = os.environ.get("CORPUS_SPAN", "Jensen Huang's keynotes, interviews, earnings calls and NVIDIA news, May–Oct 2026")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
 SYSTEM_PROMPT = """You are NVIDIA Insight, a senior analyst who covers NVIDIA and its CEO Jensen Huang. You answer only from the evidence provided: numbered source excerpts from Jensen's keynotes, earnings calls, interviews and NVIDIA press coverage from the last six months.
@@ -193,12 +195,15 @@ def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
         system = f"{system}\n\nUser feedback on earlier answers (reinforcement):\n{guidance}"
     if req.notes:
         system = f"{system}\n\nFact-checker feedback on your previous draft — these sentences were NOT supported by the sources; do not repeat them, state only what the sources say:\n{req.notes}"
+    cov = grounding.coverage(question, hits) if hits else {"terms": [], "missing": []}
+    if cov["missing"]:
+        system = f"{system}\n\n{grounding.prompt_instruction(cov, CORPUS_SPAN)}"
     if hits:
         user = f"Sources:\n{_format_sources(hits)}\n\nNew question: {question}\n\n{fmt}"
     else:
         user = (f"New question: {question}\n\n(No source excerpts were retrieved; answer from Jensen Huang's recent public remarks "
                 f"and say that no excerpt confirms it.)\n\n{fmt}")
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}], hits
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}], hits, cov
 
 
 def _public(h: dict) -> dict:
@@ -283,9 +288,9 @@ def _ensure_code_example(text: str, question: str) -> str:
     return text[:section_end].rstrip() + block + text[section_end:]
 
 
-async def _verify(text: str, hits: list[dict], mode: str) -> tuple[str, dict | None]:
+async def _verify(text: str, hits: list[dict], mode: str, question: str = "", cov: dict | None = None) -> tuple[str, dict | None]:
     """Second agentic step: judge every cited sentence against its sources and correct/remove unsupported ones."""
-    judge_input, claims = verifier.build_judge_input(text, hits)
+    judge_input, claims = verifier.build_judge_input(text, hits, question=question, missing=(cov or {}).get("missing"))
     if not claims:
         return text, None
     msgs = [{"role": "system", "content": verifier.JUDGE_PROMPT}, {"role": "user", "content": judge_input}]
@@ -352,8 +357,10 @@ async def api_chat(req: ChatRequest):
     async def gen():
         t0 = time.time()
         yield "data: " + json.dumps({"type": "status", "text": f"Retrieving evidence… ({cfg['label']})"}) + "\n\n"
-        messages, hits = _build_messages(req)
-        yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits]}) + "\n\n"
+        messages, hits, cov = _build_messages(req)
+        q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
+        note = grounding.reader_note(cov, CORPUS_SPAN)
+        yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits], "coverage": cov | {"note": note}}) + "\n\n"
         yield "data: " + json.dumps({"type": "status", "text": f"Reading {len(hits)} sources and writing the briefing — the first tokens take ~{'20-40' if mode == 'expert' else '3-5'} s"}) + "\n\n"
         text = ""
         try:
@@ -363,17 +370,17 @@ async def api_chat(req: ChatRequest):
         except Exception as e:  # noqa: BLE001
             yield "data: " + json.dumps({"type": "error", "error": f"LLM backend error: {e}"}) + "\n\n"
         text, cited = _finalize(text, hits, _last_question(req))
+        text = grounding.ensure_disclaimer(text, cov, CORPUS_SPAN)
         yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
         report = None
         if _should_verify(req, mode) and hits:
             yield "data: " + json.dumps({"type": "status", "text": "Verifying every cited claim against its sources (agentic check, ~40-70 s)…"}) + "\n\n"
-            text, report = await _verify(text, hits, mode)
+            text, report = await _verify(text, hits, mode, question=q, cov=cov)
             cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
             yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
-        q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
-        log.info("chat mode=%s turns=%d %.1fs q=%r sources=%s verify=%s answer=%r", mode, len(req.messages), time.time() - t0, q[:120],
-                 [h["chunk_id"] for h in hits[:4]], {k: report[k] for k in ("score", "corrected", "removed")} if report and "score" in report else None, text[:160])
-        yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": mode, "model": cfg["model"], "verification": report}) + "\n\n"
+        log.info("chat mode=%s turns=%d %.1fs q=%r sources=%s missing=%s verify=%s answer=%r", mode, len(req.messages), time.time() - t0, q[:120],
+                 [h["chunk_id"] for h in hits[:4]], cov["missing"], {k: report[k] for k in ("score", "corrected", "removed")} if report and "score" in report else None, text[:160])
+        yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": mode, "model": cfg["model"], "verification": report, "coverage": cov}) + "\n\n"
         yield "data: " + json.dumps({"type": "done"}) + "\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -384,15 +391,18 @@ async def api_answer(req: ChatRequest):
     """Non-streaming variant (used by the evaluation script and simple integrations)."""
     mode = req.mode or llm.DEFAULT_MODE
     t0 = time.time()
-    messages, hits = _build_messages(req)
+    messages, hits, cov = _build_messages(req)
+    q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
     text = await llm.chat(messages, mode=mode, max_tokens=req.max_tokens, temperature=req.temperature)
     text, cited = _finalize(text, hits, _last_question(req))
+    text = grounding.ensure_disclaimer(text, cov, CORPUS_SPAN)
     report = None
     if _should_verify(req, mode) and hits:
-        text, report = await _verify(text, hits, mode)
+        text, report = await _verify(text, hits, mode, question=q, cov=cov)
         cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
     return {"answer": text, "mode": mode, "model": llm.mode_cfg(mode)["model"], "seconds": round(time.time() - t0, 1),
-            "cited": cited, "verification": report, "sources": [_public(h) | {"cited": (i + 1) in cited} for i, h in enumerate(hits)]}
+            "cited": cited, "verification": report, "coverage": cov | {"note": grounding.reader_note(cov, CORPUS_SPAN)},
+            "sources": [_public(h) | {"cited": (i + 1) in cited} for i, h in enumerate(hits)]}
 
 
 # ---------------------------------------------------------------- precise mode: NeMo Agent Toolkit workflow (draft -> verify -> refine)
@@ -408,7 +418,8 @@ async def api_precise(req: ChatRequest):
         t0 = time.time()
         yield "data: " + json.dumps({"type": "status", "text": "Precise mode · NeMo Agent Toolkit workflow: retrieving evidence…"}) + "\n\n"
         hits = STATE["retriever"].search(question, top_k=req.top_k) if "retriever" in STATE else []
-        yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits]}) + "\n\n"
+        cov = grounding.coverage(question, hits)
+        yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits], "coverage": cov | {"note": grounding.reader_note(cov, CORPUS_SPAN)}}) + "\n\n"
         yield "data: " + json.dumps({"type": "status", "text": "Agent loop running: draft → fact-check every cited sentence → refine until ≥90% verified (typically 2-5 min)…"}) + "\n\n"
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(1200.0, connect=5.0)) as c:
@@ -454,6 +465,7 @@ class VerifyRequest(BaseModel):
     answer: str
     sources: list[dict] = Field(..., description="[{title,date,text,...}] in citation order")
     mode: str | None = None
+    question: str = ""
 
 
 @app.post("/api/verify")
@@ -463,7 +475,10 @@ async def api_verify(req: VerifyRequest):
     for src in req.sources:  # resolve full passage text (API responses carry only snippets)
         full = STATE["retriever"].chunk(src.get("chunk_id", "")) if "retriever" in STATE and src.get("chunk_id") else None
         sources.append({**src, "text": (full or {}).get("text") or src.get("text") or src.get("snippet") or ""})
-    text, report = await _verify(req.answer, sources, mode)
+    cov = grounding.coverage(req.question, sources) if req.question else None
+    text, report = await _verify(req.answer, sources, mode, question=req.question, cov=cov)
+    if cov:
+        text = grounding.ensure_disclaimer(text, cov, CORPUS_SPAN)
     cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(req.sources)})
     return {"answer": text, "cited": cited, "verification": report}
 

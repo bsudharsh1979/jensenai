@@ -1,0 +1,20 @@
+# systemd *user* unit: Nemotron-3-Super (NVFP4) served by vLLM on :8001 — NVIDIA's Super-on-Spark recipe
+# (Marlin FP4, MTP speculative decoding, FP8 KV, prefix caching). See deploy/vllm/serve_super_spark.sh.
+# Before the first start, evict Ollama's 91 GB copy of Super: deploy/vllm/unload_ollama_super.sh
+# Install: cp deploy/systemd/jensen-vllm-super.service ~/.config/systemd/user/ && systemctl --user enable --now jensen-vllm-super
+[Unit]
+Description=vLLM - Nemotron-3-Super-120B-A12B NVFP4 (expert generator for NVIDIA Insight)
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/jensenai
+ExecStartPre=-%h/jensenai/deploy/vllm/unload_ollama_super.sh
+ExecStart=%h/jensenai/deploy/vllm/serve_super_spark.sh
+ExecStop=/usr/bin/docker stop vllm-super
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=default.target

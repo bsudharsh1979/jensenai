@@ -57,9 +57,9 @@ async def jensen_draft(config: JensenDraftConfig, _builder: Builder):
             r = await c.post(f"{config.app_url}/api/answer", json=body)
         r.raise_for_status()
         j = r.json()
-        return json.dumps({"answer": j["answer"], "sources": j["sources"], "model": j["model"]})
+        return json.dumps({"answer": j["answer"], "sources": j["sources"], "model": j["model"], "question": question, "coverage": j.get("coverage")})
 
-    yield FunctionInfo.from_fn(_fn, description="Draft a cited, six-section analyst briefing for the question using retrieved sources. Optional notes = fact-checker feedback to respect. Output: JSON {answer, sources, model}.")
+    yield FunctionInfo.from_fn(_fn, description="Draft a cited, six-section analyst briefing for the question using retrieved sources. Optional notes = fact-checker feedback to respect. Output: JSON {answer, sources, model, question, coverage}.")
 
 
 class JensenVerifyConfig(FunctionBaseConfig, name="jensen_verify"):
@@ -72,7 +72,7 @@ async def jensen_verify(config: JensenVerifyConfig, _builder: Builder):
     async def _fn(draft_json: str) -> str:
         d = json.loads(draft_json)
         async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-            r = await c.post(f"{config.app_url}/api/verify", json={"answer": d["answer"], "sources": d["sources"], "mode": config.mode})
+            r = await c.post(f"{config.app_url}/api/verify", json={"answer": d["answer"], "sources": d["sources"], "mode": config.mode, "question": d.get("question", "")})
         r.raise_for_status()
         return json.dumps(r.json())
 
@@ -98,7 +98,7 @@ async def jensen_precise_briefing(config: JensenPreciseConfig, _builder: Builder
             for rnd in range(1, config.max_rounds + 1):
                 body = {"messages": [{"role": "user", "content": question}], "mode": config.mode, "top_k": config.top_k, "verify": False, "notes": notes}
                 d = (await c.post(f"{config.app_url}/api/answer", json=body)).raise_for_status().json()
-                v = (await c.post(f"{config.app_url}/api/verify", json={"answer": d["answer"], "sources": d["sources"], "mode": config.mode})).raise_for_status().json()
+                v = (await c.post(f"{config.app_url}/api/verify", json={"answer": d["answer"], "sources": d["sources"], "mode": config.mode, "question": question})).raise_for_status().json()
                 rep = v.get("verification") or {}
                 score = rep.get("score", 1.0)
                 log.info("round %d: score=%.2f corrected=%s removed=%s", rnd, score, rep.get("corrected"), rep.get("removed"))

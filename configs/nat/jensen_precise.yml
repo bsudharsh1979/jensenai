@@ -26,8 +26,8 @@ llms:
   # Local Nemotron-3-Super through Ollama's OpenAI-compatible API (used by evaluators / optional react agent)
   nemotron_super:
     _type: openai
-    model_name: nemotron-3-super:latest
-    base_url: http://127.0.0.1:11434/v1
+    model_name: nemotron-3-super   # vLLM (jensen-vllm-super); Ollama fallback: nemotron-3-super:latest at :11434/v1
+    base_url: http://127.0.0.1:8001/v1
     api_key: ollama
     temperature: 0.0
     max_retries: 2

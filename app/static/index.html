@@ -48,6 +48,8 @@
   .src.uncited .tag { background:#222; color:var(--muted); }
   .thinking { color:var(--muted); font-size:13px; font-style:italic; }
   .thinking.after { margin-top:12px; padding-top:8px; border-top:1px dashed var(--border); }
+  .coverage { margin:0 0 12px; padding:8px 10px; border-radius:8px; background:#1d170a; border:1px solid #5a4a14; color:#f3c969; font-size:13px; line-height:1.45; }
+  @media print { .coverage { background:#fff8e1; border-color:#c9a227; color:#5a4300; } }
   .verified { margin-top:12px; padding:8px 10px; border-radius:8px; background:#0f1a11; border:1px solid #27402a; color:var(--green); font-size:12.5px; }
   .verified a { color:var(--muted); margin-left:6px; } .fixes { margin:8px 0 0 16px; color:var(--muted); font-size:12px; } .fixes s { color:#c77; }
   .footnote { color:var(--muted); font-size:11px; margin-top:10px; border-top:1px solid var(--border); padding-top:6px; }
@@ -178,8 +180,8 @@ function renderMarkdown(text) {
     return `<p${cls}>${inline(b.replace(/\n/g, ' '))}</p>`;
   }).join(''); }
 }
-function render(el, text) {
-  el.innerHTML = renderMarkdown(text); log.scrollTop = log.scrollHeight;
+function render(el, text, prefix = '') {
+  el.innerHTML = prefix + renderMarkdown(text); log.scrollTop = log.scrollHeight;
 }
 async function renderDiagrams(el) {
   if (!window.mermaid) return;
@@ -240,8 +242,8 @@ form.addEventListener('submit', async e => {
   e.preventDefault(); const text = q.value.trim(); if (!text) return;
   q.value=''; sendBtn.disabled = true; ex.style.display='none';
   add('user', text); history.push({role:'user', content:text});
-  const body = add('bot', '…'); let answer = ''; const t0 = Date.now();
-  const setStatus = t => { if (!answer) body.innerHTML = `<div class="thinking">${t}</div>`; else { let st = body.querySelector('.thinking.after'); if (!st) { st = document.createElement('div'); st.className = 'thinking after'; body.appendChild(st); } st.textContent = t; } };
+  const body = add('bot', '…'); let answer = ''; let covHtml = ''; const t0 = Date.now();
+  const setStatus = t => { if (!answer) body.innerHTML = covHtml + `<div class="thinking">${t}</div>`; else { let st = body.querySelector('.thinking.after'); if (!st) { st = document.createElement('div'); st.className = 'thinking after'; body.appendChild(st); } st.textContent = t; } };
   try {
     const modeSel = document.getElementById('mode').value;
     const r = await fetch(modeSel === 'precise' ? '/api/precise' : '/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked, mode: modeSel === 'precise' ? 'expert' : modeSel})});
@@ -250,10 +252,10 @@ form.addEventListener('submit', async e => {
       const {value, done} = await reader.read(); if (done) break;
       buf += dec.decode(value, {stream:true}); const parts = buf.split('\n\n'); buf = parts.pop();
       for (const p of parts) { if (!p.startsWith('data:')) continue; const ev = JSON.parse(p.slice(5));
-        if (ev.type==='sources') showSources(ev.sources);
+        if (ev.type==='sources') { showSources(ev.sources); if (ev.coverage && ev.coverage.note) { covHtml = `<div class="coverage">⚠ ${ev.coverage.note.replace(/[&<>]/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[x]))}</div>`; render(body, answer, covHtml); } }
         else if (ev.type==='status') setStatus(ev.text);
-        else if (ev.type==='token') { answer += ev.content; render(body, answer); }
-        else if (ev.type==='final') { answer = ev.content; render(body, answer); await renderDiagrams(body); }
+        else if (ev.type==='token') { answer += ev.content; render(body, answer, covHtml); }
+        else if (ev.type==='final') { answer = ev.content; render(body, answer, covHtml); await renderDiagrams(body); }
         else if (ev.type==='cited') { body.querySelector('.thinking.after')?.remove(); showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); if (ev.verification && ev.verification.score !== undefined) { const v = ev.verification; body.insertAdjacentHTML('beforeend', `<div class="verified">✔ Verified ${Math.round(v.score*100)}% of ${v.checked} claims against the cited sources · ${v.corrected} corrected · ${v.removed} removed${v.changes && v.changes.length ? ` <a href="#" class="showfix">show changes</a>` : ''}</div>`); const a = body.querySelector('.showfix'); if (a) a.onclick = e => { e.preventDefault(); const list = v.changes.map(c => `<li><s>${c.from.replace(/[&<>]/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[x]))}</s>${c.to ? ' → ' + c.to.replace(/[&<>]/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[x])) : ' (removed)'}</li>`).join(''); a.outerHTML = `<ul class="fixes">${list}</ul>`; };  }
           addActions(body, {question: text, answer, sources: lastSources, cited: ev.ids, mode: ev.mode, model: ev.model}); }
         else if (ev.type==='error') { answer += '\n⚠ ' + ev.error; render(body, answer); } }
