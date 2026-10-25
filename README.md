@@ -37,7 +37,7 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 * **Export to PDF** — one click under any answer produces an A4 briefing (question, sections, rendered diagrams, code, numbered sources with URLs, model/time footer) via WeasyPrint (`POST /api/pdf`).
 * **Reinforcement layer (good / bad feedback)** — 👍/👎 plus an optional comment per answer (`POST /api/feedback` → `data/feedback/feedback.jsonl`). Online, ratings on semantically similar questions (cos ≥ 0.80) shape the next answer: a good answer becomes a depth/structure exemplar, bad-answer comments become explicit "avoid" rules, and passages cited in bad answers are down-weighted in retrieval. Offline, `scripts/10_build_preference_data.py` turns good/bad pairs into DPO data for NeMo AutoModel to re-tune the fast model.
 * **Agentic claim verification (precision layer)** — after drafting, the expert model fact-checks every cited sentence against the full text of the passage it cites and returns a verdict per sentence: *supported*, *corrected* (rewritten to say only what the source says) or *remove*. Unsupported claims never reach the reader; the answer shows "✔ Verified 86% of 21 claims · 0 corrected · 3 removed" with a *show changes* link. On by default in Expert mode (`verify: false` to skip). A planted fabrication ("$250 billion revenue, Jensen retiring") is caught and removed in testing.
-* **Precise mode = NeMo Agent Toolkit workflow** — `nat/` is a NeMo Agent Toolkit plugin (`nvidia-nat` 1.9) registering the app's capabilities as toolkit functions (`jensen_retrieve`, `jensen_draft`, `jensen_verify`) and a workflow `jensen_precise_briefing` that runs *draft → verify → refine*: if fewer than 90 % of sentences verify, it re-drafts with the fact-checker's notes (up to 2 rounds) and keeps the best-scoring version. Served by `nat serve` (systemd unit `jensen-nat`, port 8601) and exposed in the UI as the third mode; also runnable as `nat run … --input "…"` and evaluable with `nat eval` (RAGAS answer accuracy, local Nemotron-3-Super as judge). *Note: NVIDIA deprecated the NeMo Agent Toolkit in October 2026 (EOL end-2026) in favour of NeMo Relay / Helix / Fabric; the integration is isolated in `nat/` and `app/verify.py` so it can be re-hosted on the successor without touching the app.*
+* **Precise mode = NeMo Agent Toolkit workflow** — `nat/` is a NeMo Agent Toolkit plugin (`nvidia-nat` 1.9) registering the app's capabilities as toolkit functions (`jensen_retrieve`, `jensen_draft`, `jensen_verify`) and a workflow `jensen_precise_briefing` that runs *draft → verify → refine*: if fewer than 90 % of sentences verify, it re-drafts with the fact-checker's notes (up to 2 rounds) and keeps the best-scoring version. Served by `nat serve` (systemd unit `jensen-nat`, port 8601) and exposed in the UI as the third mode; also runnable as `nat run … --input "…"` and evaluable with `nat eval` (toolkit `tunable_rag_evaluator`, LLM-as-judge for coverage/correctness/relevance against reference answers, local Nemotron-3-Super as judge). *Note: NVIDIA deprecated the NeMo Agent Toolkit in October 2026 (EOL end-2026) in favour of NeMo Relay / Helix / Fabric; the integration is isolated in `nat/` and `app/verify.py` so it can be re-hosted on the successor without touching the app.*
 * **Expert-quality diagrams, on screen and in print** — architecture diagrams are layered `flowchart TB` graphs (compute / networking / software / applications as sub-graphs, two-line quoted labels, labelled edges, a fixed colour code with legend), plus a `sequenceDiagram` for data flows or a `timeline` for dated roadmaps when the sources give them; every briefing ends with a **Use-case inspiration** section (3-5 use-case *types* this topic inspires, each labelled "(inspiration)" where extrapolated) closed by a Mermaid **use-case map** (mindmap). For PDF/print the browser re-renders each diagram in a light print theme with pure-SVG text and rasterises it at 3× (WeasyPrint cannot draw Mermaid's HTML labels), so printouts are crisp with captions and legends.
 * **Readable by design** — short paragraphs under each heading, each sub-topic with a bold lead-in, at most two citations per paragraph; a post-processing pass (`_tidy`) collapses citation stacks and normalises spacing, and uncited paragraphs receive one embedding-attributed citation rather than one per sentence.
 
@@ -169,6 +169,20 @@ python3 -m venv .venv-nat && .venv-nat/bin/pip install "nvidia-nat[langchain]" g
 ```
 
 The app proxies the workflow at `POST /api/precise` (same SSE events as `/api/chat`) and exposes the tools it uses at `POST /api/retrieve` and `POST /api/verify`.
+
+**`nat eval` result (6 held-out questions, `eval/nat_dataset.json`, Oct 25 2026, judge = Nemotron-3-Super):**
+
+| item | sentences verified (round 1) | removed / corrected | judge score (coverage · correctness · relevance) |
+|---|---|---|---|
+| agentic AI at GTC Taipei | 94 % | 0 / 1 | 0.78 |
+| industries with NVIDIA deals (Oct 2026) | 100 % | 0 / 0 | 0.96 |
+| RoboWIZ platform (GTC Berlin) | 94 % | 2 / 0 | 1.00 |
+| first programmable GPU (SIGGRAPH) | 100 % | 0 / 0 | 1.00 |
+| data-center growth driver (Q2 FY27) | 94 % | 1 / 0 | 0.54 |
+| Egypt / Grand Egyptian Museum partners | 97 % | 1 / 0 | 0.91 |
+| **average** | **96.5 %** | 4 / 1 | **0.87** |
+
+Every answer reached the 90 % verification target in a single round (the refine round is only triggered below 90 %, as seen in earlier runs: 0.77 → 0.90, 0.85 → 0.97). The judge's two sub-1 scores are **coverage** gaps (the briefing omitted a detail present in the reference, e.g. the CFO's "Blackwell Ultra" wording), not factual errors — the verifier's job is precision, and no judged answer contained a statement contradicting its reference. Raw outputs: `eval/nat_results/` (judge reasoning per item and the full generated briefings).
 
 ### GGUF export for Ollama (fast mode)
 

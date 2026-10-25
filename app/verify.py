@@ -61,8 +61,11 @@ def build_judge_input(answer: str, hits: list[dict], max_src_chars: int = 2200) 
         for i, snt in enumerate(c["sentences"]):
             parts.append(f"  sentence {i}: {snt}")
         for n in c["src_ids"]:
+            if n < 1 or n > len(hits):
+                continue
             h = hits[n - 1]
-            parts.append(f"  source [{n}] ({h.get('title', '')[:80]}, {h.get('date', '')}): {h.get('text', '')[:max_src_chars]}")
+            title = (h.get("title") or "")[:80]
+            parts.append(f"  source [{n}] ({title}, {h.get('date') or ''}): {(h.get('text') or '')[:max_src_chars]}")
     return "\n".join(parts), claims
 
 
