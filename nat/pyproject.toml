@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nat-jensen"
+version = "0.1.0"
+description = "NeMo Agent Toolkit plugin: precise, verified NVIDIA Insight briefings (retrieve -> draft -> verify -> refine)"
+requires-python = ">=3.11"
+dependencies = ["nvidia-nat>=1.9", "httpx", "greenlet"]
+
+[project.entry-points."nat.components"]
+nat_jensen = "nat_jensen.register"
+
+[tool.setuptools.packages.find]
+include = ["nat_jensen*"]

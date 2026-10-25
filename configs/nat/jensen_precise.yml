@@ -1,0 +1,41 @@
+# NeMo Agent Toolkit workflow: verified ("precise") briefings.
+#   nat run   --config_file configs/nat/jensen_precise.yml --input "What is Vera Rubin and when is it in production?"
+#   nat serve --config_file configs/nat/jensen_precise.yml --port 8601      # used by the app's /api/precise
+general:
+  use_uvloop: true
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
+
+functions:
+  jensen_retrieve:
+    _type: jensen_retrieve
+    app_url: http://127.0.0.1:8600
+  jensen_draft:
+    _type: jensen_draft
+    app_url: http://127.0.0.1:8600
+    mode: expert
+  jensen_verify:
+    _type: jensen_verify
+    app_url: http://127.0.0.1:8600
+    mode: expert
+
+llms:
+  # Local Nemotron-3-Super through Ollama's OpenAI-compatible API (used by evaluators / optional react agent)
+  nemotron_super:
+    _type: openai
+    model_name: nemotron-3-super:latest
+    base_url: http://127.0.0.1:11434/v1
+    api_key: ollama
+    temperature: 0.0
+    max_retries: 2
+
+workflow:
+  _type: jensen_precise_briefing
+  app_url: http://127.0.0.1:8600
+  mode: expert
+  target_score: 0.9
+  max_rounds: 2
+  output_json: true   # the app's /api/precise parses this; set false for human-readable `nat run` output

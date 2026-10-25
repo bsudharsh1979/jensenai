@@ -139,3 +139,17 @@ def catalog() -> str:
     for key, s in SNIPPETS.items():
         parts.append(f"--- {key} (use for: {s['when']}) ---\n```{s['lang']}\n{s['code']}\n```")
     return "\n".join(parts)
+
+
+def pick(text: str) -> tuple[str, dict]:
+    """Choose the catalog snippet whose 'when' keywords best match the question/answer text."""
+    import re as _re
+    words = set(_re.findall(r"[a-z0-9][a-z0-9\-\.]+", text.lower()))
+    best, best_score = "nemotron_hf", -1
+    for key, sn in SNIPPETS.items():
+        kws = {w.strip(" ,/()").lower() for w in _re.split(r"[,/]| and ", sn["when"]) if w.strip()}
+        score = sum(1 for k in kws if k and (k in text.lower()))
+        score += sum(1 for k in key.split("_") if k in words)
+        if score > best_score:
+            best, best_score = key, score
+    return best, SNIPPETS[best]

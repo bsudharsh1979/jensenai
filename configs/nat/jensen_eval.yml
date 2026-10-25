@@ -1,0 +1,43 @@
+# nat eval --config_file configs/nat/jensen_eval.yml
+# Runs the precise workflow over held-out questions and scores it with the toolkit's tunable RAG evaluator
+# (LLM-as-judge: coverage / correctness / relevance vs the reference answer; judge = local Nemotron-3-Super via Ollama).
+general:
+  use_uvloop: true
+
+functions:
+  jensen_retrieve: {_type: jensen_retrieve, app_url: http://127.0.0.1:8600}
+
+llms:
+  nemotron_super:
+    _type: openai
+    model_name: nemotron-3-super:latest
+    base_url: http://127.0.0.1:11434/v1
+    api_key: ollama
+    temperature: 0.0
+
+workflow:
+  _type: jensen_precise_briefing
+  app_url: http://127.0.0.1:8600
+  mode: expert
+  target_score: 0.9
+  max_rounds: 2
+  footer: false
+
+eval:
+  general:
+    output_dir: ./eval/nat
+    max_concurrency: 1
+    dataset:
+      _type: json
+      file_path: eval/nat_dataset.json
+  evaluators:
+    rag_quality:
+      _type: tunable_rag_evaluator
+      llm_name: nemotron_super
+      default_scoring: true
+      default_score_weights: {coverage: 0.4, correctness: 0.4, relevance: 0.2}
+      judge_llm_prompt: |
+        You are an expert evaluator of analyst briefings about NVIDIA and Jensen Huang. Compare the generated answer with the
+        reference answer for the question. Score coverage (does it contain the facts in the reference), correctness (no
+        statements that contradict the reference or are fabricated) and relevance (stays on the question). The generated
+        answer may be longer and more structured than the reference; do not penalise extra, correct, cited detail.

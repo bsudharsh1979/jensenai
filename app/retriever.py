@@ -108,6 +108,11 @@ class Retriever:
             q *= 0.7  # heavy "um / uh / you know": raw speech-to-text, often not Jensen
         return q
 
+    def chunk(self, chunk_id: str) -> dict | None:
+        if not hasattr(self, "_by_id"):
+            self._by_id = {c["chunk_id"]: c for c in self.chunks}
+        return self._by_id.get(chunk_id)
+
     def embed_queries(self, texts: list[str]) -> np.ndarray:
         return self.model.encode_query(texts, convert_to_numpy=True, normalize_embeddings=True)
 

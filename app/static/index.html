@@ -47,12 +47,24 @@
   .src .tag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:4px; background:#1f3a22; color:var(--green); margin-left:6px; vertical-align:middle; }
   .src.uncited .tag { background:#222; color:var(--muted); }
   .thinking { color:var(--muted); font-size:13px; font-style:italic; }
+  .thinking.after { margin-top:12px; padding-top:8px; border-top:1px dashed var(--border); }
+  .verified { margin-top:12px; padding:8px 10px; border-radius:8px; background:#0f1a11; border:1px solid #27402a; color:var(--green); font-size:12.5px; }
+  .verified a { color:var(--muted); margin-left:6px; } .fixes { margin:8px 0 0 16px; color:var(--muted); font-size:12px; } .fixes s { color:#c77; }
   .footnote { color:var(--muted); font-size:11px; margin-top:10px; border-top:1px solid var(--border); padding-top:6px; }
   select { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:#0e130f; color:var(--text); font-size:13px; }
   .msg.bot .body pre { background:#0a0e0b; border:1px solid var(--border); border-radius:8px; padding:10px 12px; overflow-x:auto; font-size:12.5px; line-height:1.45; }
   .msg.bot .body pre code { color:#d7e3d7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .msg.bot .body .diagram { background:#0a0e0b; border:1px solid var(--border); border-radius:8px; padding:10px; margin:8px 0; overflow-x:auto; }
-  .msg.bot .body .diagram svg { max-width:100%; height:auto; }
+  .msg.bot .body .diagram { background:#0a0e0b; border:1px solid var(--border); border-radius:8px; padding:14px 12px 10px; margin:8px 0 14px; overflow-x:auto; position:relative; }
+  .msg.bot .body .diagram svg { max-width:100%; height:auto; display:block; margin:0 auto; }
+  .msg.bot .body .diagram .dtools { display:flex; gap:6px; justify-content:flex-end; margin-top:8px; }
+  .msg.bot .body .diagram .dtools button { padding:3px 8px; font-size:11px; background:#1a2a1c; color:var(--muted); border:1px solid #27402a; }
+  .msg.bot .body details.dfail { background:#0a0e0b; border:1px solid #5a2a2a; border-radius:8px; padding:8px 12px; margin:8px 0; color:var(--muted); font-size:12px; }
+  .msg.bot .body details.dfail pre { margin-top:8px; }
+  .msg.bot .body .diagram .legend { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; font-size:11px; color:#0f1115; }
+  .msg.bot .body .diagram .legend span { padding:2px 9px; border-radius:10px; border:1.5px solid; }
+  .legend .hw { background:#e8f5d0; border-color:#5a8f00; } .legend .net { background:#dcefff; border-color:#2b8ee6; } .legend .sw { background:#ece4ff; border-color:#8a5cf6; } .legend .app { background:#fff0d6; border-color:#f59e0b; }
+  .msg.bot .body p.caption { font-style:italic; color:var(--muted); margin:10px 0 4px; font-size:13px; }
+  @media print { body { background:#fff; color:#111; } header, form, .side, .actions, .dtools, .footnote { display:none !important; } .msg.bot .body { font-size:11.5pt; } .msg.bot .body .diagram { background:#fff; border-color:#ccc; page-break-inside:avoid; } }
   .codelabel { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin:8px 0 -4px; }
   .actions { display:flex; gap:8px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--border); flex-wrap:wrap; }
   .actions button { padding:6px 10px; font-size:12px; font-weight:600; background:#1a2a1c; color:var(--text); border:1px solid #27402a; }
@@ -78,6 +90,7 @@
       <select id="mode" title="Generator">
         <option value="expert">Expert · Nemotron-3-Super 120B</option>
         <option value="fast">Fast · fine-tuned Nemotron-Nano-4B</option>
+        <option value="precise">Precise · NeMo Agent Toolkit loop (draft → verify → refine)</option>
       </select>
       <label class="toggle"><input type="checkbox" id="rag" checked> RAG</label>
       <button id="send" type="submit">Ask</button>
@@ -111,7 +124,32 @@ function add(role, text) {
   d.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'NVIDIA Insight'}</div><div class="body"></div>`;
   d.querySelector('.body').textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d.querySelector('.body');
 }
-if (window.mermaid) mermaid.initialize({ startOnLoad:false, theme:'dark', securityLevel:'loose', themeVariables:{ primaryColor:'#1f3a22', primaryTextColor:'#e6ede6', primaryBorderColor:'#76b900', lineColor:'#76b900', secondaryColor:'#121814', tertiaryColor:'#0e130f', fontFamily:'Segoe UI, Helvetica, Arial' } });
+if (window.mermaid) mermaid.initialize({ startOnLoad:false, theme:'dark', securityLevel:'loose',
+  themeVariables:{ primaryColor:'#1f3a22', primaryTextColor:'#e6ede6', primaryBorderColor:'#76b900', lineColor:'#9ccc3c', secondaryColor:'#13293d', tertiaryColor:'#0e130f', clusterBkg:'#0f1510', clusterBorder:'#2a3a2c', titleColor:'#e6ede6', edgeLabelBackground:'#0a0e0b', fontFamily:'Segoe UI, Helvetica, Arial', fontSize:'16px',
+    actorBkg:'#1f3a22', actorBorder:'#76b900', actorTextColor:'#e6ede6', signalColor:'#9ccc3c', signalTextColor:'#e6ede6', noteBkgColor:'#2b2340', noteTextColor:'#e6ede6',
+    cScale0:'#76b900', cScale1:'#4fb3ff', cScale2:'#b388ff', cScale3:'#ffb347', cScale4:'#ff6e9c', cScale5:'#2bd4bd' },
+  flowchart:{ curve:'basis', nodeSpacing:50, rankSpacing:80, padding:16, htmlLabels:true, useMaxWidth:true },
+  mindmap:{ padding:14, useMaxWidth:true }, sequence:{ useMaxWidth:true, mirrorActors:false, actorMargin:60 }, timeline:{ useMaxWidth:true, padding:12 } });
+const PRINT_INIT = '%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eef7dc","primaryTextColor":"#0f1115","primaryBorderColor":"#5a8f00","lineColor":"#3a6b00","secondaryColor":"#e8f1fb","tertiaryColor":"#f7f7f7","clusterBkg":"#f6f8f1","clusterBorder":"#b9c9a0","titleColor":"#0f1115","edgeLabelBackground":"#ffffff","fontFamily":"Arial, Helvetica, Liberation Sans, DejaVu Sans, sans-serif","fontSize":"16px","actorBkg":"#eef7dc","actorBorder":"#5a8f00","actorTextColor":"#0f1115","signalColor":"#3a6b00","signalTextColor":"#0f1115","noteBkgColor":"#fff4d6","noteTextColor":"#0f1115","cScale0":"#5a8f00","cScale1":"#2b8ee6","cScale2":"#8a5cf6","cScale3":"#f59e0b","cScale4":"#e8457a","cScale5":"#14b8a6","cScaleLabel0":"#ffffff","cScaleLabel1":"#ffffff","cScaleLabel2":"#ffffff","cScaleLabel3":"#0f1115","cScaleLabel4":"#ffffff","cScaleLabel5":"#0f1115"},"htmlLabels":false,"flowchart":{"curve":"basis","nodeSpacing":50,"rankSpacing":80,"padding":16,"htmlLabels":false,"useMaxWidth":true},"mindmap":{"padding":16,"useMaxWidth":true}}}%%\n';
+const HAS_LEGEND = c => /classDef\s+hw/.test(c);
+async function renderPrintSvg(code) {
+  const { svg } = await mermaid.render('prt' + (++mermaidSeq), PRINT_INIT + code);
+  return svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg" style="background:#fff"');
+}
+async function svgToPng(svg, scale = 3) {
+  // Rasterise for print: PDF engines cannot draw Mermaid's HTML (foreignObject) labels, a PNG at 3x is crisp on paper.
+  const vb = svg.match(/viewBox="([-\d.\s]+)"/); const [, , w, h] = vb ? vb[1].trim().split(/\s+/).map(Number) : [0, 0, 800, 600];
+  const holder = document.createElement('div'); holder.style.cssText = 'position:absolute;left:-99999px;top:0'; holder.innerHTML = svg; document.body.appendChild(holder);
+  const el = holder.querySelector('svg'); el.setAttribute('width', w); el.setAttribute('height', h); el.style.maxWidth = ''; el.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  el.querySelectorAll('foreignObject > *').forEach(n => n.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml'));
+  const sized = new XMLSerializer().serializeToString(el).replace(/&nbsp;/g, '\u00a0'); holder.remove();
+  const img = new Image(); const url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml;charset=utf-8' }));
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+  const c = document.createElement('canvas'); c.width = Math.ceil(w * scale); c.height = Math.ceil(h * scale);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(url); return { png: c.toDataURL('image/png'), width: w, height: h };
+}
+const DIAGRAM_LABEL = c => /^\s*mindmap/.test(c) ? 'Use-case map' : /^\s*sequenceDiagram/.test(c) ? 'Workflow / data flow' : /^\s*timeline/.test(c) ? 'Timeline' : 'Architecture diagram';
 let mermaidSeq = 0;
 function renderMarkdown(text) {
   // minimal markdown: ### headings, **bold**, blank-line paragraphs, [n] citations, ``` fenced code / mermaid
@@ -122,7 +160,7 @@ function renderMarkdown(text) {
     if (seg.startsWith('```')) {
       const m = seg.match(/^```([\w-]*)\n?([\s\S]*?)(?:```)?$/); const lang = (m && m[1] || '').toLowerCase(); const code = m ? m[2] : '';
       const closed = seg.endsWith('```');
-      if (lang === 'mermaid') return closed ? `<div class="codelabel">Architecture diagram</div><div class="diagram" data-mermaid="${esc(code).replace(/"/g,'&quot;')}">${esc(code)}</div>` : `<div class="codelabel">Architecture diagram (rendering…)</div><pre><code>${esc(code)}</code></pre>`;
+      if (lang === 'mermaid') return closed ? `<div class="codelabel">${DIAGRAM_LABEL(code)}</div><div class="diagram" data-mermaid="${esc(code).replace(/"/g,'&quot;')}">${esc(code)}</div>` : `<div class="codelabel">${DIAGRAM_LABEL(code)} (rendering…)</div><pre><code>${esc(code)}</code></pre>`;
       return `<div class="codelabel">${lang ? esc(lang) : 'code'}</div><pre><code>${esc(code)}</code></pre>`;
     }
     return renderProse(seg);
@@ -136,7 +174,8 @@ function renderMarkdown(text) {
       const bodyTxt = [m ? m[2] : '', ...rest].join(' ').trim();
       return `<h3>${inline(head)}</h3>` + (bodyTxt ? `<p>${inline(bodyTxt)}</p>` : '');
     }
-    return `<p>${inline(b.replace(/\n/g, ' '))}</p>`;
+    const cls = /^Figure:/.test(b.trim()) ? ' class="caption"' : '';
+    return `<p${cls}>${inline(b.replace(/\n/g, ' '))}</p>`;
   }).join(''); }
 }
 function render(el, text) {
@@ -146,8 +185,19 @@ async function renderDiagrams(el) {
   if (!window.mermaid) return;
   for (const d of el.querySelectorAll('.diagram[data-mermaid]')) {
     const code = d.getAttribute('data-mermaid').replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-    try { const { svg } = await mermaid.render('mmd' + (++mermaidSeq), code); d.innerHTML = svg; }
-    catch (e) { d.innerHTML = '<pre><code>' + d.textContent + '</code></pre><div class="codelabel">diagram could not be rendered</div>'; }
+    try {
+      const { svg } = await mermaid.render('mmd' + (++mermaidSeq), code);
+      d.innerHTML = svg + (HAS_LEGEND(code) ? '<div class="legend"><span class="hw">Compute / memory hardware</span><span class="net">Networking / interconnect</span><span class="sw">Software / models</span><span class="app">Applications / customers</span></div>' : '') + '<div class="dtools"><button class="open">Open full size</button><button class="dl">Download SVG</button><button class="print">Print view</button></div>';
+      d.dataset.src = code;
+      d.querySelector('.print').onclick = async () => { const w = window.open('', '_blank'); w.document.write('<html><body style="margin:16px;font-family:Helvetica,Arial">' + await renderPrintSvg(code) + '</body></html>'); w.document.close(); };
+      const blob = () => new Blob([d.querySelector('svg').outerHTML.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg" style="background:#0a0e0b"')], {type:'image/svg+xml'});
+      d.querySelector('.open').onclick = () => window.open(URL.createObjectURL(blob()), '_blank');
+      d.querySelector('.dl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob()); a.download = DIAGRAM_LABEL(code).toLowerCase().replace(/[^a-z]+/g, '-') + '.svg'; a.click(); };
+    } catch (e) {
+      const det = document.createElement('details'); det.className = 'dfail';
+      det.innerHTML = '<summary>Diagram could not be rendered — show source</summary><pre><code>' + d.textContent.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])) + '</code></pre>';
+      d.replaceWith(det); continue;
+    }
     d.removeAttribute('data-mermaid');
   }
 }
@@ -165,7 +215,12 @@ function addActions(body, ctx) {
   };
   bar.querySelector('.pdf').onclick = async () => {
     bar.querySelector('.pdf').textContent = 'Building PDF…';
-    const svgs = [...body.querySelectorAll('.diagram svg')].map(s => s.outerHTML);
+    const svgs = [];
+    for (const d of body.querySelectorAll('.diagram[data-src]')) {
+      const code = d.dataset.src;
+      try { const svg = await renderPrintSvg(code); let png = {}; try { png = await svgToPng(svg); } catch (e) {} svgs.push({ svg, ...png, label: DIAGRAM_LABEL(code), legend: HAS_LEGEND(code) }); }
+      catch (e) { svgs.push({ svg: d.querySelector('svg')?.outerHTML || '', label: DIAGRAM_LABEL(code), legend: HAS_LEGEND(code) }); }
+    }
     const r = await fetch('/api/pdf', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question: ctx.question, answer: ctx.answer, sources: ctx.sources, cited: ctx.cited, mode: ctx.mode, model: ctx.model, diagrams_svg: svgs})});
     if (!r.ok) { bar.querySelector('.pdf').textContent = 'PDF failed'; return; }
     const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (r.headers.get('Content-Disposition')||'').match(/filename="(.+)"/)?.[1] || 'nvidia-insight-briefing.pdf'; a.click();
@@ -186,9 +241,10 @@ form.addEventListener('submit', async e => {
   q.value=''; sendBtn.disabled = true; ex.style.display='none';
   add('user', text); history.push({role:'user', content:text});
   const body = add('bot', '…'); let answer = ''; const t0 = Date.now();
-  const setStatus = t => { if (!answer) body.innerHTML = `<div class="thinking">${t}</div>`; };
+  const setStatus = t => { if (!answer) body.innerHTML = `<div class="thinking">${t}</div>`; else { let st = body.querySelector('.thinking.after'); if (!st) { st = document.createElement('div'); st.className = 'thinking after'; body.appendChild(st); } st.textContent = t; } };
   try {
-    const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked, mode: document.getElementById('mode').value})});
+    const modeSel = document.getElementById('mode').value;
+    const r = await fetch(modeSel === 'precise' ? '/api/precise' : '/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history, use_rag: document.getElementById('rag').checked, mode: modeSel === 'precise' ? 'expert' : modeSel})});
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
     while (true) {
       const {value, done} = await reader.read(); if (done) break;
@@ -198,7 +254,8 @@ form.addEventListener('submit', async e => {
         else if (ev.type==='status') setStatus(ev.text);
         else if (ev.type==='token') { answer += ev.content; render(body, answer); }
         else if (ev.type==='final') { answer = ev.content; render(body, answer); await renderDiagrams(body); }
-        else if (ev.type==='cited') { showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); addActions(body, {question: text, answer, sources: lastSources, cited: ev.ids, mode: ev.mode, model: ev.model}); }
+        else if (ev.type==='cited') { body.querySelector('.thinking.after')?.remove(); showSources(lastSources, ev.ids); body.insertAdjacentHTML('beforeend', `<div class="footnote">${ev.model} · ${ev.seconds}s · ${ev.ids.length} sources cited</div>`); if (ev.verification && ev.verification.score !== undefined) { const v = ev.verification; body.insertAdjacentHTML('beforeend', `<div class="verified">✔ Verified ${Math.round(v.score*100)}% of ${v.checked} claims against the cited sources · ${v.corrected} corrected · ${v.removed} removed${v.changes && v.changes.length ? ` <a href="#" class="showfix">show changes</a>` : ''}</div>`); const a = body.querySelector('.showfix'); if (a) a.onclick = e => { e.preventDefault(); const list = v.changes.map(c => `<li><s>${c.from.replace(/[&<>]/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[x]))}</s>${c.to ? ' → ' + c.to.replace(/[&<>]/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[x])) : ' (removed)'}</li>`).join(''); a.outerHTML = `<ul class="fixes">${list}</ul>`; };  }
+          addActions(body, {question: text, answer, sources: lastSources, cited: ev.ids, mode: ev.mode, model: ev.model}); }
         else if (ev.type==='error') { answer += '\n⚠ ' + ev.error; render(body, answer); } }
     }
   } catch (err) { render(body, (answer||'') + '\n⚠ ' + err); }

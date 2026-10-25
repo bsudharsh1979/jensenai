@@ -24,3 +24,6 @@ logs/
 !eval/summary.json
 data/feedback/feedback.jsonl
 data/sft/dpo.jsonl
+.venv-nat/
+eval/nat/
+nat/*.egg-info/

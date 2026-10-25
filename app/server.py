@@ -14,6 +14,8 @@ import os
 import re
 import time
 import uuid
+
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,8 +26,9 @@ from pydantic import BaseModel, Field
 
 from app import llm
 from app.feedback import FeedbackStore
-from app.nvidia_snippets import catalog as snippet_catalog
+from app.nvidia_snippets import catalog as snippet_catalog, pick as pick_snippet
 from app.retriever import Retriever
+from app import verify as verifier
 
 HERE = Path(__file__).resolve().parent
 STATE: dict = {}
@@ -54,11 +57,37 @@ Inside Technical view, Business view, Real-world use cases and Insights, split t
 Who is already using it: only companies, countries or institutions the sources name, with the reported benefit; if none, write "The sources do not name specific adopters for this topic."
 Insights: expert, non-obvious takeaways specific to this question — implications, risks, what to watch next, contradictions between sources.
 
-Citations: one [n] at the end of the sentence with the key fact of each paragraph, at most two per paragraph, never stacked like [1][4][6]. An answer without the six headings or without any bracketed citations is unacceptable.
+The final section of every answer (after any Architecture & code section) is:
+### Use-case inspiration
+3-5 short paragraphs, each with a bold lead-in naming a TYPE of use case that THIS topic specifically inspires — derive the types from what the sources say about this topic (capabilities, customers, industries, Jensen's own examples), not from a generic list, and make them different from one another: who would build it, what the user gets, and which NVIDIA capability from the sources enables it. Cite where the sources support it; where it is your extrapolation, write "(inspiration)" at the end of the paragraph instead of a citation.
+Close the section with a use-case map as a Mermaid mindmap in a ```mermaid fenced block, preceded by a one-line caption starting with "Figure:": root((topic)) in the centre, one branch per use-case type (3-5, the same names as the bold lead-ins above, at most 4 words each), 2 leaves per branch naming an industry or scenario in at most 3 words. Mindmap labels are plain words only — no brackets, parentheses, colons, quotes or slashes — and indentation is two spaces per level (syntax illustration only, do not reuse its content):
+```mermaid
+mindmap
+  root((Topic))
+    First use-case type
+      Industry or scenario
+      Industry or scenario
+    Second use-case type
+      Industry or scenario
+```
+
+Citations: one [n] at the end of the sentence with the key fact of each paragraph, at most two per paragraph, never stacked like [1][4][6]. An answer without the headings or without any bracketed citations is unacceptable.
 """
 
-ARCH_FORMAT = """Seventh section — "### Architecture & code" — this question is about a system, platform, chip, network, software stack or developer workflow, so include this section after Insights. If, and only if, the sources truly describe no system or workflow, omit the heading entirely (never write a placeholder sentence under it). It has two parts, both mandatory when the section is present:
-1. A Mermaid diagram in a ```mermaid fenced block (flowchart LR or TD, 6-14 nodes) showing the architecture or data flow exactly as the sources describe it; label nodes with the real component names (GPUs, CPUs, NVLink, Spectrum-X, BlueField, software layers) and always put node labels in double quotes, e.g. A["DGX Spark (64 GB)"] --> B["NVLink switch"]. Do not invent components that the sources do not mention.
+ARCH_FORMAT = """Seventh section — "### Architecture & code" — this question is about a system, platform, chip, network, software stack or developer workflow, so include this section immediately after Insights and before Use-case inspiration. If, and only if, the sources truly describe no system or workflow, omit the heading entirely (never write a placeholder sentence under it). It has two parts, both mandatory when the section is present:
+1. An architecture diagram in a ```mermaid fenced block, preceded by a one-line caption sentence starting with "Figure:". Rules for an expert-quality diagram:
+- `flowchart TB`; 8-14 nodes grouped into 2-4 `subgraph` layers stacked top to bottom in the direction data flows (e.g. Data & networking → Compute → Software stack → Applications), with the nodes of one layer side by side (at most 4 per layer); every subgraph gets an id and a quoted title: subgraph compute["Compute layer"].
+- Node labels: a short name, then `<br/>` and one spec line of at most 5 words, e.g. A["Rubin GPU<br/>HBM4, 72 per rack"]. No more than 2 lines, no sentences, labels always in double quotes.
+- Edges show flow or dependency, one direction only (never A-->B and B-->A), labelled with the protocol or quantity when the sources give it: -->|NVLink 72|, -->|KV cache|. 8-14 edges, no decorative edges.
+- Use only components the sources mention; if a layer has nothing in the sources, leave it out.
+- Finish the block with exactly these style lines and assign every node to one class (hw = compute/memory/cooling hardware, net = networking/interconnect, sw = software/frameworks/models, app = applications/customers):
+classDef hw fill:#e8f5d0,stroke:#5a8f00,stroke-width:2px,color:#0f1115
+classDef net fill:#dcefff,stroke:#2b8ee6,stroke-width:2px,color:#0f1115
+classDef sw fill:#ece4ff,stroke:#8a5cf6,stroke-width:2px,color:#0f1115
+classDef app fill:#fff0d6,stroke:#f59e0b,stroke-width:2px,color:#0f1115
+class A,B hw
+(continue `class ... net/sw/app` lines for the remaining nodes).
+1b. If the sources describe a request/data flow (prefill → decode, sensor → policy, training → deployment), add a `sequenceDiagram` with 3-5 participants and 4-8 messages; if they give a dated roadmap (announcement, sampling, production, shipments), add a `timeline` with 3-6 dated entries instead. Each extra diagram in its own ```mermaid block, preceded by its own "Figure:" caption line. Skip 1b if the sources give neither.
 2. A short, runnable example (10-30 lines, one ```python or ```bash fenced block) using the most relevant NVIDIA library or tool — e.g. TensorRT-LLM / NVIDIA Dynamo / NIM for inference, NeMo for training, cuDF/RAPIDS for data, Isaac Sim / Cosmos for robotics, CUDA Python (numba/cupy) for kernels, DGX Spark playbooks — preceded by one sentence naming the library and why it fits the question. Take it from the approved snippet catalog below and adapt only names/prompts/sizes; never invent commands or functions."""
 
 TECH_RE = re.compile(r"\b(architecture|fine-?tun\w*|inference|serving|software stack|full.?stack|chips?|gpus?|cpus?|racks?|nvl\d*|nvlink|spectrum-?x|infiniband|bluefield|connectx|cuda|tensorrt|dynamo|nim|nemo|nemotron|cosmos|isaac|omniverse|openshell|hyperion|rubin|blackwell|vera|grace|dgx|spark|rtx|jetson|thor|drive\s+(agx|thor|os)|kv.?cache|disaggregat\w*|robots?|robotics|physical ai|digital twins?|humanoids?|developers?|sdk|library|libraries|api|framework)\b", re.I)
@@ -86,9 +115,11 @@ class ChatRequest(BaseModel):
     mode: str | None = Field(None, description="'expert' (Nemotron-3-Super) or 'fast' (fine-tuned Nemotron-3-Nano-4B)")
     use_rag: bool = True
     top_k: int = 8
-    max_tokens: int = 2600
+    max_tokens: int = 3200
     temperature: float = 0.2
     structured: bool = Field(True, description="Six-section analyst briefing; false = short direct answer")
+    verify: bool | None = Field(None, description="Agentic claim verification pass (default: on for expert mode)")
+    notes: str | None = Field(None, description="Verifier feedback from a previous draft (used by the NAT refine loop)")
 
 
 def _format_sources(hits: list[dict]) -> str:
@@ -160,6 +191,8 @@ def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
         system = f"{system}\n\n{context}"
     if guidance:
         system = f"{system}\n\nUser feedback on earlier answers (reinforcement):\n{guidance}"
+    if req.notes:
+        system = f"{system}\n\nFact-checker feedback on your previous draft — these sentences were NOT supported by the sources; do not repeat them, state only what the sources say:\n{req.notes}"
     if hits:
         user = f"Sources:\n{_format_sources(hits)}\n\nNew question: {question}\n\n{fmt}"
     else:
@@ -224,15 +257,61 @@ def _tidy(text: str) -> str:
     text = re.sub(r"^(#{2,4} .+)\n(?=\S)", r"\1\n\n", text, flags=re.M)
     text = re.sub(r"(?<=\S)\n(?=#{2,4} )", "\n\n", text)
     text = re.sub(r"(?<=\S)\n(?=\*\*[^*\n]{2,60}\*\*)", "\n\n", text)  # each bold lead-in starts its own paragraph
-    text = _MERMAID_FENCE_RE.sub(lambda m: m.group(1) + _fix_mermaid(m.group(2)) + m.group(3), text)
+    text = _MERMAID_FENCE_RE.sub(lambda m: m.group(1) + (_fix_mermaid(m.group(2)) if re.match(r"\s*(flowchart|graph)\b", m.group(2)) else m.group(2)) + m.group(3), text)
+    text = re.sub(r"^\*?Figure:\*?\s*$\n?", "", text, flags=re.M)  # empty captions
     m = re.search(r"^### Architecture & code\s*$", text, re.M)
     if m and "```" not in text[m.end():]:  # placeholder section without diagram/code → drop it
         text = text[: m.start()]
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def _finalize(text: str, hits: list[dict]) -> tuple[str, list[int]]:
+def _ensure_code_example(text: str, question: str) -> str:
+    """Guarantee the Architecture & code section carries a verified NVIDIA code example."""
+    m = re.search(r"^### Architecture & code\s*$", text, re.M)
+    if not m:
+        return text
+    end = re.search(r"^### Use-case inspiration\s*$", text[m.end():], re.M)
+    section_end = m.end() + end.start() if end else len(text)
+    if re.search(r"```(python|bash|sh)\b", text[m.end():section_end]):
+        return text
+    key, sn = pick_snippet(question + " " + text[: m.start()])
+    lib = {"tensorrt_llm": "TensorRT-LLM", "dynamo": "NVIDIA Dynamo", "nim": "NVIDIA NIM", "nemo_automodel": "NeMo AutoModel",
+           "cuda_python": "CUDA Python (CuPy / Numba)", "rapids": "RAPIDS cuDF", "isaac_sim": "Isaac Sim", "cosmos": "NVIDIA Cosmos",
+           "nemotron_hf": "Nemotron with Hugging Face Transformers", "omniverse": "OpenUSD / Omniverse"}[key]
+    block = (f"\n\nCode example (verified snippet from NVIDIA's public documentation, chosen for this topic): {lib} — "
+             f"fits because it is the documented path for {sn['when'].split(',')[0].strip()}.\n\n```{sn['lang']}\n{sn['code']}\n```\n\n")
+    return text[:section_end].rstrip() + block + text[section_end:]
+
+
+async def _verify(text: str, hits: list[dict], mode: str) -> tuple[str, dict | None]:
+    """Second agentic step: judge every cited sentence against its sources and correct/remove unsupported ones."""
+    judge_input, claims = verifier.build_judge_input(text, hits)
+    if not claims:
+        return text, None
+    msgs = [{"role": "system", "content": verifier.JUDGE_PROMPT}, {"role": "user", "content": judge_input}]
+    try:
+        verdicts = await llm.chat(msgs, mode=mode, max_tokens=1800, temperature=0.0)
+    except Exception as e:  # noqa: BLE001
+        log.warning("verification failed: %s", e)
+        return text, {"error": str(e)}
+    new_text, report = verifier.apply_verdicts(text, claims, verdicts)
+    report["model"] = llm.mode_cfg(mode)["model"]
+    return new_text, report
+
+
+def _should_verify(req: "ChatRequest", mode: str) -> bool:
+    return req.verify if req.verify is not None else (mode == "expert" and req.structured)
+
+
+def _last_question(req: "ChatRequest") -> str:
+    q = next((m.get("content", "") for m in reversed(req.messages) if m.get("role") == "user"), "")
+    return q if req.structured and TECH_RE.search(q) else ""
+
+
+def _finalize(text: str, hits: list[dict], question: str = "") -> tuple[str, list[int]]:
     text = _tidy(text)
+    if question:
+        text = _ensure_code_example(text, question)
     """Guarantee citations: keep the model's [n] marks, attribute uncited sentences by embedding similarity."""
     if hits and "retriever" in STATE:
         try:
@@ -251,6 +330,11 @@ async def index():
 async def api_health():
     h = await llm.health()
     h["rag"] = "retriever" in STATE
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            h["nat"] = (await c.get(f"{NAT_URL}/health")).status_code == 200
+    except Exception:  # noqa: BLE001
+        h["nat"] = False
     return h
 
 
@@ -278,12 +362,18 @@ async def api_chat(req: ChatRequest):
                 yield "data: " + json.dumps({"type": "token", "content": piece}) + "\n\n"
         except Exception as e:  # noqa: BLE001
             yield "data: " + json.dumps({"type": "error", "error": f"LLM backend error: {e}"}) + "\n\n"
-        text, cited = _finalize(text, hits)
-        q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
-        log.info("chat mode=%s turns=%d %.1fs q=%r sources=%s answer=%r", mode, len(req.messages), time.time() - t0, q[:120],
-                 [h["chunk_id"] for h in hits[:4]], text[:160])
+        text, cited = _finalize(text, hits, _last_question(req))
         yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
-        yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": mode, "model": cfg["model"]}) + "\n\n"
+        report = None
+        if _should_verify(req, mode) and hits:
+            yield "data: " + json.dumps({"type": "status", "text": "Verifying every cited claim against its sources (agentic check, ~40-70 s)…"}) + "\n\n"
+            text, report = await _verify(text, hits, mode)
+            cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
+            yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
+        q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
+        log.info("chat mode=%s turns=%d %.1fs q=%r sources=%s verify=%s answer=%r", mode, len(req.messages), time.time() - t0, q[:120],
+                 [h["chunk_id"] for h in hits[:4]], {k: report[k] for k in ("score", "corrected", "removed")} if report and "score" in report else None, text[:160])
+        yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": mode, "model": cfg["model"], "verification": report}) + "\n\n"
         yield "data: " + json.dumps({"type": "done"}) + "\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -296,9 +386,86 @@ async def api_answer(req: ChatRequest):
     t0 = time.time()
     messages, hits = _build_messages(req)
     text = await llm.chat(messages, mode=mode, max_tokens=req.max_tokens, temperature=req.temperature)
-    text, cited = _finalize(text, hits)
+    text, cited = _finalize(text, hits, _last_question(req))
+    report = None
+    if _should_verify(req, mode) and hits:
+        text, report = await _verify(text, hits, mode)
+        cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
     return {"answer": text, "mode": mode, "model": llm.mode_cfg(mode)["model"], "seconds": round(time.time() - t0, 1),
-            "cited": cited, "sources": [_public(h) | {"cited": (i + 1) in cited} for i, h in enumerate(hits)]}
+            "cited": cited, "verification": report, "sources": [_public(h) | {"cited": (i + 1) in cited} for i, h in enumerate(hits)]}
+
+
+# ---------------------------------------------------------------- precise mode: NeMo Agent Toolkit workflow (draft -> verify -> refine)
+NAT_URL = os.environ.get("NAT_URL", "http://127.0.0.1:8601")
+
+
+@app.post("/api/precise")
+async def api_precise(req: ChatRequest):
+    """SSE wrapper around the NAT workflow server so the UI gets the same event stream as /api/chat."""
+    question = next((m.get("content", "") for m in reversed(req.messages) if m.get("role") == "user"), "")
+
+    async def gen():
+        t0 = time.time()
+        yield "data: " + json.dumps({"type": "status", "text": "Precise mode · NeMo Agent Toolkit workflow: retrieving evidence…"}) + "\n\n"
+        hits = STATE["retriever"].search(question, top_k=req.top_k) if "retriever" in STATE else []
+        yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits]}) + "\n\n"
+        yield "data: " + json.dumps({"type": "status", "text": "Agent loop running: draft → fact-check every cited sentence → refine until ≥90% verified (typically 2-5 min)…"}) + "\n\n"
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(1200.0, connect=5.0)) as c:
+                r = await c.post(f"{NAT_URL}/generate", json={"question": question})
+            r.raise_for_status()
+            out = r.json()
+            val = out.get("value") if isinstance(out, dict) else out
+            data = json.loads(val) if isinstance(val, str) and val.strip().startswith("{") else {"answer": str(val), "cited": [], "verification": None, "round": None, "model": "nat"}
+        except Exception as e:  # noqa: BLE001
+            yield "data: " + json.dumps({"type": "error", "error": f"NAT workflow error: {e}"}) + "\n\n"
+            yield "data: " + json.dumps({"type": "done"}) + "\n\n"
+            return
+        text = data["answer"]
+        cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(hits)})
+        rep = data.get("verification") or {}
+        if rep:
+            rep["rounds"] = data.get("round")
+        log.info("precise %.1fs q=%r rounds=%s verify=%s", time.time() - t0, question[:120], data.get("round"),
+                 {k: rep.get(k) for k in ("score", "corrected", "removed")} if rep else None)
+        yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
+        yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": "precise",
+                                     "model": f"{data.get('model', '')} · NAT loop ×{data.get('round')}", "verification": rep or None}) + "\n\n"
+        yield "data: " + json.dumps({"type": "done"}) + "\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------- tool endpoints for the NeMo Agent Toolkit workflow (nat/)
+class RetrieveRequest(BaseModel):
+    question: str
+    top_k: int = 8
+
+
+@app.post("/api/retrieve")
+async def api_retrieve(req: RetrieveRequest):
+    if "retriever" not in STATE:
+        raise HTTPException(503, "RAG disabled")
+    hits = STATE["retriever"].search(req.question, top_k=req.top_k)
+    return {"sources": [_public(h) | {"text": h.get("text", "")} for h in hits]}
+
+
+class VerifyRequest(BaseModel):
+    answer: str
+    sources: list[dict] = Field(..., description="[{title,date,text,...}] in citation order")
+    mode: str | None = None
+
+
+@app.post("/api/verify")
+async def api_verify(req: VerifyRequest):
+    mode = req.mode or llm.DEFAULT_MODE
+    sources = []
+    for src in req.sources:  # resolve full passage text (API responses carry only snippets)
+        full = STATE["retriever"].chunk(src.get("chunk_id", "")) if "retriever" in STATE and src.get("chunk_id") else None
+        sources.append({**src, "text": (full or {}).get("text") or src.get("text") or src.get("snippet") or ""})
+    text, report = await _verify(req.answer, sources, mode)
+    cited = sorted({int(n) for n in CITE_RE.findall(text) if 1 <= int(n) <= len(req.sources)})
+    return {"answer": text, "cited": cited, "verification": report}
 
 
 # ---------------------------------------------------------------- feedback (reinforcement layer)
@@ -335,10 +502,14 @@ class PdfRequest(BaseModel):
     cited: list[int] = []
     mode: str | None = None
     model: str | None = None
-    diagrams_svg: list[str] = Field([], description="Rendered Mermaid SVGs from the browser, in order of appearance")
+    diagrams_svg: list[str | dict] = Field([], description="Rendered Mermaid SVGs (print theme) from the browser, in order of appearance; str or {svg,label,legend}")
 
 
-def _md_to_html(md: str, svgs: list[str]) -> str:
+_LEGEND_HTML = ('<div class="legend"><span class="hw">Compute / memory hardware</span><span class="net">Networking / interconnect</span>'
+                '<span class="sw">Software / models</span><span class="app">Applications / customers</span></div>')
+
+
+def _md_to_html(md: str, svgs: list) -> str:
     """Small markdown → HTML for the briefing (headings, paragraphs, fenced code, mermaid → supplied SVG)."""
     import html as _h
     out, para, fence, lang, buf, svg_i = [], [], False, "", [], 0
@@ -348,14 +519,25 @@ def _md_to_html(md: str, svgs: list[str]) -> str:
             text = _h.escape(" ".join(para))
             text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
             text = CITE_RE.sub(lambda m: f'<span class="cite">[{m.group(1)}]</span>', text)
-            out.append(f"<p>{text}</p>"); para = []
+            cls = ' class="caption"' if text.startswith("Figure:") else ""
+            out.append(f"<p{cls}>{text}</p>"); para = []
     for line in md.split("\n"):
         if line.strip().startswith("```"):
             if not fence:
                 flush(); fence, lang, buf = True, line.strip()[3:].strip().lower(), []
             else:
                 if lang == "mermaid" and svg_i < len(svgs):
-                    out.append(f'<div class="diagram">{svgs[svg_i]}</div>'); svg_i += 1
+                    d = svgs[svg_i]; svg_i += 1
+                    if isinstance(d, str):
+                        d = {"svg": d, "label": "", "legend": False}
+                    label = f'<div class="dlabel">{_h.escape(d.get("label") or "Diagram")}</div>'
+                    if d.get("png", "").startswith("data:image/png;base64,"):
+                        w, hgt = float(d.get("width") or 800), float(d.get("height") or 600)
+                        css = "width:100%" if w >= hgt * 0.8 else f"width:{min(100, max(45, 100 * w / hgt * 1.2)):.0f}%"
+                        fig = f'<img class="dimg" src="{d["png"]}" style="{css}" alt="{_h.escape(d.get("label") or "diagram")}">'
+                    else:
+                        fig = d.get("svg", "")
+                    out.append(f'<div class="diagram">{label}{fig}{_LEGEND_HTML if d.get("legend") else ""}</div>')
                 elif lang == "mermaid":
                     out.append(f'<pre class="code"><code>{_h.escape(chr(10).join(buf))}</code></pre>')
                 else:
@@ -392,7 +574,13 @@ async def api_pdf(req: PdfRequest):
     h3 {{ font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #5a8a00; border-top: 1px solid #ddd; padding-top: 8px; margin: 14px 0 4px; }}
     p {{ margin: 0 0 9px; }} p b:first-child {{ display: block; color: #000; margin-bottom: 1px; }} .cite {{ color: #5a8a00; font-weight: 600; font-size: 8px; vertical-align: super; }}
     pre.code {{ background: #f6f6f6; border: 1px solid #ddd; padding: 8px; font-size: 9px; white-space: pre-wrap; }}
-    .diagram svg {{ max-width: 100%; height: auto; }} .diagram {{ margin: 8px 0; }}
+    .diagram {{ margin: 10px 0 14px; padding: 10px; border: 1px solid #d5dbcf; border-radius: 6px; background: #fff; page-break-inside: avoid; }}
+    .diagram svg {{ width: 100%; max-width: 100%; height: auto; display: block; }}
+    .diagram img.dimg {{ display: block; margin: 0 auto; max-width: 100%; max-height: 225mm; height: auto; }}
+    .dlabel {{ font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #5a8a00; font-weight: 700; margin-bottom: 6px; }}
+    .legend {{ margin-top: 8px; font-size: 9px; color: #333; }} .legend span {{ display: inline-block; padding: 2px 8px; margin-right: 6px; border-radius: 10px; border: 1.5px solid; }}
+    .legend .hw {{ background: #e8f5d0; border-color: #5a8f00; }} .legend .net {{ background: #dcefff; border-color: #2b8ee6; }} .legend .sw {{ background: #ece4ff; border-color: #8a5cf6; }} .legend .app {{ background: #fff0d6; border-color: #f59e0b; }}
+    p.caption {{ font-style: italic; color: #444; margin: 6px 0 2px; }}
     .meta {{ color: #666; font-size: 9px; }} ol.sources {{ padding-left: 18px; }} ol.sources li {{ margin-bottom: 6px; }} li.uncited {{ color: #888; }}
     .foot {{ margin-top: 16px; color: #666; font-size: 9px; border-top: 1px solid #ddd; padding-top: 6px; }}
     </style></head><body>

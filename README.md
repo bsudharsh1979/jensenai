@@ -36,6 +36,9 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 * **Architecture diagrams and NVIDIA code — only when relevant** — for questions about a system, chip, stack or developer workflow (Vera Rubin NVL72, Dynamo, DGX Spark, Cosmos…) the briefing adds an *Architecture & code* section: a Mermaid architecture/data-flow diagram built from what the sources describe, plus a short example using the fitting NVIDIA library (TensorRT-LLM, Dynamo, NIM, NeMo AutoModel, cuDF/RAPIDS, Isaac Sim, Cosmos, CUDA Python, OpenUSD) taken from a catalog of verified snippets (`app/nvidia_snippets.py`). Financial, strategic and event-summary questions never get it.
 * **Export to PDF** — one click under any answer produces an A4 briefing (question, sections, rendered diagrams, code, numbered sources with URLs, model/time footer) via WeasyPrint (`POST /api/pdf`).
 * **Reinforcement layer (good / bad feedback)** — 👍/👎 plus an optional comment per answer (`POST /api/feedback` → `data/feedback/feedback.jsonl`). Online, ratings on semantically similar questions (cos ≥ 0.80) shape the next answer: a good answer becomes a depth/structure exemplar, bad-answer comments become explicit "avoid" rules, and passages cited in bad answers are down-weighted in retrieval. Offline, `scripts/10_build_preference_data.py` turns good/bad pairs into DPO data for NeMo AutoModel to re-tune the fast model.
+* **Agentic claim verification (precision layer)** — after drafting, the expert model fact-checks every cited sentence against the full text of the passage it cites and returns a verdict per sentence: *supported*, *corrected* (rewritten to say only what the source says) or *remove*. Unsupported claims never reach the reader; the answer shows "✔ Verified 86% of 21 claims · 0 corrected · 3 removed" with a *show changes* link. On by default in Expert mode (`verify: false` to skip). A planted fabrication ("$250 billion revenue, Jensen retiring") is caught and removed in testing.
+* **Precise mode = NeMo Agent Toolkit workflow** — `nat/` is a NeMo Agent Toolkit plugin (`nvidia-nat` 1.9) registering the app's capabilities as toolkit functions (`jensen_retrieve`, `jensen_draft`, `jensen_verify`) and a workflow `jensen_precise_briefing` that runs *draft → verify → refine*: if fewer than 90 % of sentences verify, it re-drafts with the fact-checker's notes (up to 2 rounds) and keeps the best-scoring version. Served by `nat serve` (systemd unit `jensen-nat`, port 8601) and exposed in the UI as the third mode; also runnable as `nat run … --input "…"` and evaluable with `nat eval` (RAGAS answer accuracy, local Nemotron-3-Super as judge). *Note: NVIDIA deprecated the NeMo Agent Toolkit in October 2026 (EOL end-2026) in favour of NeMo Relay / Helix / Fabric; the integration is isolated in `nat/` and `app/verify.py` so it can be re-hosted on the successor without touching the app.*
+* **Expert-quality diagrams, on screen and in print** — architecture diagrams are layered `flowchart TB` graphs (compute / networking / software / applications as sub-graphs, two-line quoted labels, labelled edges, a fixed colour code with legend), plus a `sequenceDiagram` for data flows or a `timeline` for dated roadmaps when the sources give them; every briefing ends with a **Use-case inspiration** section (3-5 use-case *types* this topic inspires, each labelled "(inspiration)" where extrapolated) closed by a Mermaid **use-case map** (mindmap). For PDF/print the browser re-renders each diagram in a light print theme with pure-SVG text and rasterises it at 3× (WeasyPrint cannot draw Mermaid's HTML labels), so printouts are crisp with captions and legends.
 * **Readable by design** — short paragraphs under each heading, each sub-topic with a bold lead-in, at most two citations per paragraph; a post-processing pass (`_tidy`) collapses citation stacks and normalises spacing, and uncited paragraphs receive one embedding-attributed citation rather than one per sentence.
 
 **Main benefits**
@@ -62,7 +65,7 @@ YouTube captions + transcripts + NVIDIA newsroom/blog + press  ──►  NeMo-C
 
 **RAG type.** Hybrid retrieval: dense `Nemotron-3-Embed-1B` (2048-d cosine) over 2,389 passages plus BM25 over title + date + text, fused with reciprocal-rank fusion (k=60), multiplied by a source-quality prior (transcripts, earnings calls and NVIDIA publications up; live-stream reactions and commentary down), with a per-document cap for diversity. Follow-up questions are detected and retrieved with the previous question merged in; a citation guarantee attributes any uncited paragraph to its best-matching passage; and passages cited in answers the user rated bad are down-weighted (×0.7) for similar questions.
 
-**Answer pipeline.** Question + compact notes of prior turns → retrieval → prompt (analyst rules, 8 numbered sources, six-section format, optional architecture/code section with the snippet catalog) → generation by Nemotron-3-Super (expert) or the fine-tuned Nano-4B (fast) → tidy & attribute (≤ 2 citations per paragraph, lead-ins, fences preserved) → render (headings, Mermaid, code, PDF). A per-request nonce defeats Ollama's prefix cache and conversation *notes* instead of verbatim history stop answer recycling.
+**Answer pipeline.** Question + compact notes of prior turns → retrieval → prompt (analyst rules, 8 numbered sources, six-section format + use-case inspiration, optional architecture/code section with the snippet catalog) → generation by Nemotron-3-Super (expert) or the fine-tuned Nano-4B (fast) → tidy & attribute (≤ 2 citations per paragraph, lead-ins, fences preserved, Mermaid labels sanitised, guaranteed code example) → **verify** (sentence-level fact-check against cited passages; correct/remove) → render (headings, Mermaid, code, PDF). Precise mode wraps draft+verify in the NeMo Agent Toolkit refine loop. A per-request nonce defeats Ollama's prefix cache and conversation *notes* instead of verbatim history stop answer recycling.
 
 **Serving stack.** One GB10 GPU hosts both Nemotrons through Ollama (Super Q4_K_M ~91 GB resident, Nano GGUF swapped in on demand with app-level eviction), the embedding model and BM25 in-process, and a FastAPI/SSE app on `:8600` run as a systemd user service; WeasyPrint renders PDFs server-side.
 
@@ -107,9 +110,12 @@ scripts/
   10_build_preference_data.py # good/bad feedback -> DPO pairs (data/sft/dpo.jsonl) + NeMo AutoModel DPO config
   11_render_tech_infographic.py # technical-architecture infographic
 app/
-  server.py  retriever.py  llm.py  feedback.py  nvidia_snippets.py  static/index.html  static/vendor/mermaid.min.js
+  server.py  retriever.py  llm.py  feedback.py  verify.py  nvidia_snippets.py  static/index.html  static/vendor/mermaid.min.js
+nat/                      # NeMo Agent Toolkit plugin (pip install -e nat/ in .venv-nat): tools + jensen_precise_briefing workflow
+configs/nat/              # jensen_precise.yml (nat run / nat serve), jensen_eval.yml (nat eval)
+eval/nat_dataset.json     # held-out questions for nat eval
 deploy/
-  vllm_serve.sh  run_app.sh  Modelfile  systemd/jensen-vllm.service  systemd/jensen-insight.service
+  vllm_serve.sh  run_app.sh  Modelfile  systemd/jensen-vllm.service  systemd/jensen-insight.service  systemd/jensen-nat.service
 data/   curated/stats.json, sft/train.jsonl, sft/val.jsonl, index/meta.json (large artefacts are git-ignored)
 eval/   summary.json
 data/feedback/feedback.jsonl  # human ratings (reinforcement layer)
@@ -152,6 +158,17 @@ mkdir -p ~/.config/systemd/user && cp deploy/systemd/*.service ~/.config/systemd
 systemctl --user daemon-reload && systemctl --user enable --now jensen-insight
 loginctl enable-linger $USER
 ```
+
+### Precise mode (NeMo Agent Toolkit)
+
+```bash
+python3 -m venv .venv-nat && .venv-nat/bin/pip install "nvidia-nat[langchain]" greenlet && .venv-nat/bin/pip install -e nat/
+.venv-nat/bin/nat run  --config_file configs/nat/jensen_precise.yml --input "What is Vera Rubin and when is it in production?"
+.venv-nat/bin/nat serve --config_file configs/nat/jensen_precise.yml --port 8601     # or: systemctl --user enable --now jensen-nat
+.venv-nat/bin/pip install "nvidia-nat[eval]" && .venv-nat/bin/nat eval --config_file configs/nat/jensen_eval.yml
+```
+
+The app proxies the workflow at `POST /api/precise` (same SSE events as `/api/chat`) and exposes the tools it uses at `POST /api/retrieve` and `POST /api/verify`.
 
 ### GGUF export for Ollama (fast mode)
 

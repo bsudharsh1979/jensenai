@@ -1,0 +1,32 @@
+[
+ {
+  "id": "1",
+  "question": "What did Jensen Huang say about the significance of agentic AI at GTC 2026 in Taipei?",
+  "answer": "Jensen Huang stated that agentic AI has arrived and is useful, explaining it as a large language model inside a harness that observes, reasons, plans, and uses tools with working and long-term memory. He described it as a breakthrough computing model where the agent, not the application, is central. This was highlighted during his keynote at GTC 2026 in Taipei."
+ },
+ {
+  "id": "2",
+  "question": "According to the Bloomberg Tech program from July 2026, what areas of technology is NVIDIA involved in pushing forward?",
+  "answer": "The Bloomberg Tech segment highlights that NVIDIA, under Jensen Huang's leadership, is advancing technology across multiple domains including software, hardware, chemistry, and physics. The discussion frames NVIDIA as a company pushing the envelope in diverse technical fields, from finance and defense tech to AI and entertainment. This reflects a broad strategic scope beyond just graphics or AI chips."
+ },
+ {
+  "id": "3",
+  "question": "What five technological areas does the RoboWIZ AI Robotics Platform integrate into a single development ecosystem, according to the information presented at NVIDIA GTC Berlin in October 2026?",
+  "answer": "The RoboWIZ AI Robotics Platform integrates AI core control, functional safety and cybersecurity, visual perception, real-time control, and actuation and robot systems into a unified development ecosystem. This was highlighted during NEXCOM's presentation at NVIDIA GTC Berlin in October 2026. By combining these areas, the platform supports flexible robot development across humanoids, quadrupeds, and mobile manipulators."
+ },
+ {
+  "id": "4",
+  "question": "According to Jensen Huang at SIGGRAPH 2026, what milestone did NVIDIA achieve in 2001, and how did it impact computing?",
+  "answer": "Jensen Huang said NVIDIA invented the world's first programmable GPU in 2001, a milestone he highlighted during the 2026 SIGGRAPH research keynote. This invention enabled programmable shading and laid the groundwork for using GPUs in general-purpose computing. He noted it was a critical step before the introduction of CUDA five years later, which expanded the GPU's role into scientific and engineering applications."
+ },
+ {
+  "id": "5",
+  "question": "What product did NVIDIA's management attribute the explosive growth in the data center to during the Q2 FY27 earnings call?",
+  "answer": "NVIDIA's management attributed the explosive growth in the data center to the Blackwell Ultra infrastructure. The CFO used strong language, describing it as responsible for the overwhelming majority of sales and shipments. However, the passage clarifies that this is a management narrative, not audited, item-by-item financial data. This statement was made during the Q2 FY27 earnings call published on August 27, 2026."
+ },
+ {
+  "id": "6",
+  "question": "Which companies are part of the NVIDIA Inception program in Egypt, and what industries do they serve?",
+  "answer": "Members of the NVIDIA Inception program in Egypt include Aidera (enterprise intelligence), Intella (Arabic speech intelligence for financial services and telecommunications), Marses Robotics (autonomous robotics and industrial automation), Proteinea (AI protein design for differentiated medicines), Stakpak (open-source autonomous developer-operations AI agent), and Paymob and Thndr (financial services through technology and AI). These startups span industries such as enterprise software, healthcare, robotics, biotech, DevOps, and fintech. This information was shared during the September 2026 event at the Grand Egyptian Museum."
+ }
+]

@@ -1,0 +1,14 @@
+[Unit]
+Description=NVIDIA Insight - NeMo Agent Toolkit workflow server (precise briefings: draft -> verify -> refine)
+After=network-online.target jensen-insight.service
+Wants=jensen-insight.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/jensenai
+ExecStart=%h/jensenai/.venv-nat/bin/nat serve --config_file configs/nat/jensen_precise.yml --host 127.0.0.1 --port 8601
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

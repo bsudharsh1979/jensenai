@@ -55,6 +55,8 @@ is used.
 * **Fine-tuning method** — LoRA SFT (r16/α32, 0.48 % of weights) on Nemotron-3-Nano-4B with NeMo AutoModel on the Spark itself, trained on 719 Q&A pairs distilled by Nemotron-3-Super; pure-tensor merge, GGUF export, served by Ollama. Held-out gains: +21 % F1, +32 % ROUGE-L, +35 % judge score.
 * **RAG type** — hybrid dense (Nemotron-3-Embed-1B) + BM25 with reciprocal-rank fusion, a source-quality prior, per-document caps, follow-up-aware retrieval, a citation guarantee and feedback-based down-weighting.
 * **Readable, exportable briefings** — six sections with bold sub-topic lead-ins and at most two citations per paragraph; technical questions add an architecture diagram (Mermaid) and a verified NVIDIA-library code example; every answer exports to an A4 PDF.
+* **Precision layer** — every cited sentence is fact-checked by the model against the passage it cites; unsupported sentences are corrected or removed and the reader sees the verification score. *Precise mode* runs this as a NeMo Agent Toolkit workflow (draft → verify → refine until ≥ 90 % verified).
+* **Diagrams that print** — layered architecture diagrams with legend, workflow/timeline diagrams and a use-case map per answer, re-rendered in a print theme and rasterised at 3× for the PDF.
 * **Reinforcement layer** — good/bad ratings with comments feed the next similar answer (exemplars, avoid-rules, retrieval weights) and accumulate into DPO preference data for re-tuning the fast model.
 
 ## Key design decisions
