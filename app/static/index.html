@@ -154,7 +154,7 @@ async function renderDiagrams(el) {
 function addActions(body, ctx) {
   const bar = document.createElement('div'); bar.className = 'actions';
   bar.innerHTML = `<button class="good" title="Good answer">👍 Good</button><button class="bad" title="Bad answer">👎 Bad</button><input class="comment" placeholder="Optional: what was wrong / what was good?"><button class="send-fb">Send feedback</button><button class="primary pdf">Export PDF</button><span class="thanks"></span>`;
-  body.parentElement.appendChild(bar);
+  body.parentElement.appendChild(bar); log.scrollTop = log.scrollHeight;
   let rating = null;
   bar.querySelector('.good').onclick = () => { rating='good'; bar.querySelector('.good').classList.add('sel'); bar.querySelector('.bad').classList.remove('sel'); };
   bar.querySelector('.bad').onclick  = () => { rating='bad';  bar.querySelector('.bad').classList.add('sel');  bar.querySelector('.good').classList.remove('sel'); };
