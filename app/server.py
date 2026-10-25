@@ -171,6 +171,25 @@ def _conversation_context(messages: list[dict]) -> tuple[list, str, str, str]:
     return [], question, rquery, context
 
 
+def _ground(question: str, hits: list[dict], top_k: int, weights: dict | None = None) -> tuple[list[dict], dict]:
+    """Coverage check + targeted re-query. The corpus may well cover the named thing even when the semantic top-k
+    missed it ("GTC Paris", "Hyperion"): pull passages that literally mention each missing term (BM25-only ranking,
+    so the rare word wins over the common one), put them first, and re-check. Whatever is still missing is reported."""
+    cov = grounding.coverage(question, hits) if hits else {"terms": [], "missing": []}
+    if cov["missing"] and "retriever" in STATE:
+        seen = {h["chunk_id"] for h in hits}
+        extra: list[dict] = []
+        for term in cov["missing"]:
+            for h in STATE["retriever"].search(term, top_k=8, weights=weights, lexical=True):
+                if h["chunk_id"] not in seen and grounding.mentions(term, h):
+                    extra.append(h)
+                    seen.add(h["chunk_id"])
+        if extra:
+            hits = (extra[:4] + hits)[: max(top_k, 6)]
+            cov = grounding.coverage(question, hits)
+    return hits, cov
+
+
 def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
     _, question, rquery, context = _conversation_context(req.messages)
     hits: list[dict] = []
@@ -195,8 +214,8 @@ def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
         system = f"{system}\n\nUser feedback on earlier answers (reinforcement):\n{guidance}"
     if req.notes:
         system = f"{system}\n\nFact-checker feedback on your previous draft — these sentences were NOT supported by the sources; do not repeat them, state only what the sources say:\n{req.notes}"
-    cov = grounding.coverage(question, hits) if hits else {"terms": [], "missing": []}
-    if cov["missing"]:
+    hits, cov = _ground(question, hits, req.top_k, weights)
+    if cov["missing"] or cov.get("thin"):
         system = f"{system}\n\n{grounding.prompt_instruction(cov, CORPUS_SPAN)}"
     if hits:
         user = f"Sources:\n{_format_sources(hits)}\n\nNew question: {question}\n\n{fmt}"
@@ -290,7 +309,7 @@ def _ensure_code_example(text: str, question: str) -> str:
 
 async def _verify(text: str, hits: list[dict], mode: str, question: str = "", cov: dict | None = None) -> tuple[str, dict | None]:
     """Second agentic step: judge every cited sentence against its sources and correct/remove unsupported ones."""
-    judge_input, claims = verifier.build_judge_input(text, hits, question=question, missing=(cov or {}).get("missing"))
+    judge_input, claims = verifier.build_judge_input(text, hits, question=question, missing=((cov or {}).get("missing") or []) + [t["term"] for t in (cov or {}).get("thin") or []])
     if not claims:
         return text, None
     msgs = [{"role": "system", "content": verifier.JUDGE_PROMPT}, {"role": "user", "content": judge_input}]
@@ -418,7 +437,7 @@ async def api_precise(req: ChatRequest):
         t0 = time.time()
         yield "data: " + json.dumps({"type": "status", "text": "Precise mode · NeMo Agent Toolkit workflow: retrieving evidence…"}) + "\n\n"
         hits = STATE["retriever"].search(question, top_k=req.top_k) if "retriever" in STATE else []
-        cov = grounding.coverage(question, hits)
+        hits, cov = _ground(question, hits, req.top_k)
         yield "data: " + json.dumps({"type": "sources", "sources": [_public(h) for h in hits], "coverage": cov | {"note": grounding.reader_note(cov, CORPUS_SPAN)}}) + "\n\n"
         yield "data: " + json.dumps({"type": "status", "text": "Agent loop running: draft → fact-check every cited sentence → refine until ≥90% verified (typically 2-5 min)…"}) + "\n\n"
         try:
@@ -458,7 +477,8 @@ async def api_retrieve(req: RetrieveRequest):
     if "retriever" not in STATE:
         raise HTTPException(503, "RAG disabled")
     hits = STATE["retriever"].search(req.question, top_k=req.top_k)
-    return {"sources": [_public(h) | {"text": h.get("text", "")} for h in hits]}
+    hits, cov = _ground(req.question, hits, req.top_k)
+    return {"sources": [_public(h) | {"text": h.get("text", "")} for h in hits], "coverage": cov}
 
 
 class VerifyRequest(BaseModel):

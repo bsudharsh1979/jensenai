@@ -49,7 +49,11 @@ class Retriever:
         self.model.max_seq_length = 512
         self._quality = np.array([self._quality_prior(c) for c in self.chunks], dtype=np.float32)
 
-    def search(self, query: str, top_k: int = 10, candidates: int = 60, weights: dict[str, float] | None = None) -> list[dict]:
+    def search(self, query: str, top_k: int = 10, candidates: int = 60, weights: dict[str, float] | None = None,
+               lexical: bool = False) -> list[dict]:
+        """Hybrid dense + BM25 search with reciprocal-rank fusion. ``lexical=True`` ranks by BM25 alone — used for
+        targeted re-queries on a named term ("GTC Paris"), where RRF would otherwise let passages that merely share
+        the common word (GTC … Berlin) outrank the few that contain the rare one."""
         q = self.model.encode_query([query], convert_to_numpy=True, normalize_embeddings=True)[0]
         dense = self.emb @ q
         dense_rank = np.argsort(-dense)[:candidates]
@@ -58,10 +62,16 @@ class Retriever:
 
         # Reciprocal rank fusion (k=60), then light de-duplication by document.
         fused: dict[int, float] = {}
-        for r, i in enumerate(dense_rank):
-            fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
-        for r, i in enumerate(bm_rank):
-            fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
+        if lexical:
+            top = float(bm[bm_rank[0]]) or 1.0
+            for i in bm_rank:
+                if bm[i] > 0:
+                    fused[int(i)] = float(bm[i]) / top
+        else:
+            for r, i in enumerate(dense_rank):
+                fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
+            for r, i in enumerate(bm_rank):
+                fused[int(i)] = fused.get(int(i), 0) + 1.0 / (60 + r)
         # Source-quality prior: primary material (transcripts, earnings calls, NVIDIA's own publications)
         # outranks live-stream commentary, reaction videos and filler-heavy speech-to-text at equal relevance.
         for i in fused:

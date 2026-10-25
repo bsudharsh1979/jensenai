@@ -62,7 +62,7 @@ def build_judge_input(answer: str, hits: list[dict], max_src_chars: int = 2200, 
     if question:
         parts.append(f"The user asked: {question}")
     if missing:
-        parts.append("None of the sources mention: " + ", ".join(missing) + ". Any sentence that attributes facts to "
+        parts.append("The sources do not cover (or mention only in passing): " + ", ".join(missing) + ". Any sentence that attributes facts to "
                      "these must be corrected to name the source's real event/date, or removed.")
     for c in claims:
         parts.append(f"### Claim {c['id']}")
