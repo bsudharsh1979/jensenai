@@ -32,7 +32,8 @@ class Retriever:
 
         from rank_bm25 import BM25Okapi
 
-        self.bm25 = BM25Okapi([_tok(c["text"]) for c in self.chunks])
+        # index title + date + text so event names that only appear in titles (Computex, SIGGRAPH, Q2 FY2027 …) match
+        self.bm25 = BM25Okapi([_tok(f"{c.get('title') or ''} {c.get('date') or ''} {c['text']}") for c in self.chunks])
 
         import torch
         from sentence_transformers import SentenceTransformer

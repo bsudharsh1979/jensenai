@@ -9,9 +9,11 @@ Run: uvicorn app.server:app --host 0.0.0.0 --port 8600
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +27,8 @@ from app.retriever import Retriever
 
 HERE = Path(__file__).resolve().parent
 STATE: dict = {}
+log = logging.getLogger("insight")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
 SYSTEM_PROMPT = """You are NVIDIA Insight, a senior analyst who covers NVIDIA and its CEO Jensen Huang. You answer only from the evidence provided: numbered source excerpts from Jensen's keynotes, earnings calls, interviews and NVIDIA press coverage from the last six months.
 
@@ -85,36 +89,65 @@ def _format_sources(hits: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _trim_history(messages: list[dict]) -> list[dict]:
-    """Keep the last few turns; shorten earlier assistant briefings so they do not crowd out the sources."""
-    hist = [m for m in messages if m.get("role") in ("user", "assistant")][-6:]
-    out = []
-    for m in hist[:-1]:
-        c = m.get("content") or ""
-        if m["role"] == "assistant" and len(c) > 900:
-            c = c[:900] + " …[earlier answer truncated]"
-        out.append({"role": m["role"], "content": c})
-    out.append(hist[-1])
-    return out
+FOLLOWUP_RE = re.compile(r"^(tell me more|more on|more about|what about|and |also |elaborate|expand|go deeper|why|how so|can you|could you|its |their |that |this |it )", re.I)
+ENTITY_RE = re.compile(r"\b[A-Z][a-zA-Z0-9]{2,}\b|\d")
+
+
+def _conversation_context(messages: list[dict]) -> tuple[list, str, str, str]:
+    """Return (prior turns as compact notes, current question, retrieval query).
+
+    Earlier assistant briefings are NOT replayed verbatim: a long previous answer that begins with "### Summary"
+    primes the model to copy it instead of answering the new question. Instead the model gets a short note of what
+    was asked and the gist of each answer. For short/pronoun-heavy follow-ups the previous question is prepended to
+    the retrieval query so the right passages are found."""
+    hist = [m for m in messages if m.get("role") in ("user", "assistant")]
+    question = next((m["content"] for m in reversed(hist) if m["role"] == "user"), "")
+    prior = hist[: max(0, len(hist) - 1)]
+    notes, prev_q = [], None
+    pairs = []
+    for m in prior:
+        if m["role"] == "user":
+            prev_q = m["content"]
+        elif prev_q is not None:
+            pairs.append((prev_q, m.get("content") or ""))
+            prev_q = None
+    for q, a in pairs[-4:]:
+        body = re.sub(r"#{2,3} [^\n]*", " ", a)
+        body = CITE_RE.sub("", body)
+        gist = " ".join(body.split())[:260]
+        notes.append(f"- Q: {q.strip()[:160]}\n  A (gist): {gist}…")
+    context = ("Conversation so far (for context only — answer ONLY the new question below and do not repeat these answers):\n"
+               + "\n".join(notes)) if notes else ""
+    last_q = pairs[-1][0] if pairs else None
+    # follow-up = starts like one, or is short and names no entity (so it must lean on the previous question)
+    q_body = question.strip()
+    has_entity = ENTITY_RE.search(q_body[1:]) is not None
+    followup = FOLLOWUP_RE.match(q_body) is not None or (len(q_body.split()) < 7 and not has_entity)
+    rquery = f"{last_q} {question}" if (last_q and followup) else question
+    return [], question, rquery, context
 
 
 def _build_messages(req: ChatRequest) -> tuple[list[dict], list[dict]]:
-    history = _trim_history(req.messages)
-    question = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+    _, question, rquery, context = _conversation_context(req.messages)
     hits: list[dict] = []
     if req.use_rag and "retriever" in STATE and question:
         hits = STATE["retriever"].search(question, top_k=req.top_k)
+        if rquery != question:  # follow-up: add passages found with the previous question as context
+            seen = {h["chunk_id"] for h in hits}
+            extra = [h for h in STATE["retriever"].search(rquery, top_k=req.top_k) if h["chunk_id"] not in seen]
+            hits = (hits[: max(4, req.top_k - 4)] + extra)[: req.top_k]
     fmt = BRIEFING_FORMAT if req.structured else SHORT_FORMAT
-    system = SYSTEM_PROMPT
-    # Sources travel in the final user turn, next to the question: both Nemotron sizes ground far more
-    # reliably this way than with sources in the system prompt.
+    # A per-request nonce at the very start of the prompt defeats llama.cpp/Ollama prefix caching, which with hybrid
+    # Mamba models (Nemotron-3-Super) can replay a stale recurrent state; sources change every turn anyway.
+    system = f"Request {uuid.uuid4().hex[:12]}\n\n{SYSTEM_PROMPT}"
+    if context:
+        system = f"{system}\n\n{context}"
     if hits:
-        user = f"Sources:\n{_format_sources(hits)}\n\nQuestion: {question}\n\n{fmt}"
+        user = f"Sources:\n{_format_sources(hits)}\n\nNew question: {question}\n\n{fmt}"
     else:
-        user = (f"Question: {question}\n\n(No source excerpts were retrieved; answer from Jensen Huang's recent public remarks "
+        user = (f"New question: {question}\n\n(No source excerpts were retrieved; answer from Jensen Huang's recent public remarks "
                 f"and say that no excerpt confirms it.)\n\n{fmt}")
-    messages = [{"role": "system", "content": system}, *history[:-1], {"role": "user", "content": user}]
-    return messages, hits
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}], hits
 
 
 def _public(h: dict) -> dict:
@@ -172,6 +205,9 @@ async def api_chat(req: ChatRequest):
         except Exception as e:  # noqa: BLE001
             yield "data: " + json.dumps({"type": "error", "error": f"LLM backend error: {e}"}) + "\n\n"
         text, cited = _finalize(text, hits)
+        q = next((m["content"] for m in reversed(req.messages) if m.get("role") == "user"), "")
+        log.info("chat mode=%s turns=%d %.1fs q=%r sources=%s answer=%r", mode, len(req.messages), time.time() - t0, q[:120],
+                 [h["chunk_id"] for h in hits[:4]], text[:160])
         yield "data: " + json.dumps({"type": "final", "content": text}) + "\n\n"
         yield "data: " + json.dumps({"type": "cited", "ids": cited, "seconds": round(time.time() - t0, 1), "mode": mode, "model": cfg["model"]}) + "\n\n"
         yield "data: " + json.dumps({"type": "done"}) + "\n\n"
